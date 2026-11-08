@@ -18,7 +18,7 @@ builder.Services.AddHttpClient<IMailStripperClient, MailStripperClient>((sp, cli
     client.Timeout = TimeSpan.FromSeconds(30);
 });
 
-builder.Services.AddSingleton<ISterileUnsubscribeDispatcher, SterileUnsubscribeDispatcher>();
+builder.Services.AddSingleton<ISterileUnsubscribeDispatcher>(sp => new SterileUnsubscribeDispatcher());
 builder.Services.AddHostedService<ImapWatcherService>();
 
 var host = builder.Build();
