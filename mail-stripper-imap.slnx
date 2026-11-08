@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="MailStripper.Imap.Tests/MailStripper.Imap.Tests.csproj" />
+  <Project Path="MailStripper.Imap/MailStripper.Imap.csproj" />
+</Solution>

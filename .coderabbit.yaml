@@ -1,0 +1,55 @@
+# CodeRabbit Configuration for mail-stripper-imap
+# Targeted Audit Scope: Headless IMAP Daemon Security, 100% Volatile Memory Ingestion & Sterile RFC 8058 Execution
+
+language: "en-US"
+
+reviews:
+  profile: "assertive"
+  request_changes_workflow: false
+  high_level_summary: true
+  poem: false
+  sequence_diagrams: true
+  auto_review:
+    enabled: true
+    drafts: false
+
+  path_filters:
+    - "!**/*.gif"
+    - "!**/*.mp4"
+    - "!**/bin/**"
+    - "!**/obj/**"
+    - "!bom.json"
+
+  path_instructions:
+    - path: "**/*"
+      instructions: |
+        You are performing an assertive security and architectural audit for "mail-stripper-imap",
+        a headless .NET 10 background daemon built on MailKit for automated IMAP folder quarantine and sterile opt-out dispatch.
+
+        Verify these non-negotiable architectural invariants:
+
+        1. 100% VOLATILE IN-MEMORY PROCESSING (CRITICAL):
+           - In `MailStripper.Imap/Services/`, messages downloaded from IMAP must reside exclusively in transient `MemoryStream` buffers.
+           - Prohibit any file write APIs (`File.WriteAll*`, `File.Create*`, `StreamWriter` to disk). Zero bytes written to `/tmp` or persistent storage.
+
+        2. STERILE RFC 8058 EXECUTION & POISON PROTECTION (CRITICAL):
+           - In `SterileUnsubscribeDispatcher.cs`, outbound HTTP requests must enforce `UseCookies = false`, `AllowAutoRedirect = false`, and immediate response content disposal.
+           - Strictly refuse execution if `report.PoisonSignals.Count > 0` or if classification is `PoisonOrReconTrap`.
+           - Only allow `https://` URIs.
+
+        3. CENTRAL PACKAGE MANAGEMENT & SUPPLY CHAIN SECURITY:
+           - Centrally manage package versions in `Directory.Packages.props`.
+           - `Directory.Build.props` must enforce fail-closed NuGet auditing (`NU1903`, `NU1904` as errors).
+
+        4. RESILIENT IMAP IDLE & RECONNECTION:
+           - `ImapWatcherService.cs` must gracefully handle socket drops and network jitter without process crashes.
+
+knowledge_base:
+  opt_out: false
+  learnings:
+    scope: "auto"
+  linked_repositories:
+    - repository: "knowthankyew/mail-stripper"
+      instructions: "Local .NET 10 ingestion plane and forensic analyzer."
+    - repository: "knowthankyew/portfolio-admin"
+      instructions: "Master brief and portfolio-wide security invariant specifications."

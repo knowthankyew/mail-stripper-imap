@@ -1,0 +1,35 @@
+name: CI & Security Invariant Audit
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  audit-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Security & Claims Audit
+        run: node scripts/audit-claims.mjs
+
+      - name: Restore Dependencies
+        run: dotnet restore mail-stripper-imap.sln
+
+      - name: Build Solution
+        run: dotnet build mail-stripper-imap.sln --no-restore
+
+      - name: Run Unit Tests
+        run: dotnet test mail-stripper-imap.sln --no-build
