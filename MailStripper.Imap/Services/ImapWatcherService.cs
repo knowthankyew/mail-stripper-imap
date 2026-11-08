@@ -144,13 +144,10 @@ public class ImapWatcherService : BackgroundService
             _logger.LogWarning("Message {Uid} is a Poison / Recon Trap ({Signals}). Moving to Quarantine.",
                 uid, string.Join("; ", unsub.PoisonSignals));
 
-            if (folder.ParentFolder != null)
+            var quarantineFolder = await ResolveFolderAsync(folder, _options.QuarantineFolder, ct);
+            if (quarantineFolder != null)
             {
-                var quarantineFolder = await folder.ParentFolder.GetSubfolderAsync(_options.QuarantineFolder, ct);
-                if (quarantineFolder != null)
-                {
-                    await folder.MoveToAsync(uid, quarantineFolder, ct);
-                }
+                await folder.MoveToAsync(uid, quarantineFolder, ct);
             }
             return;
         }
@@ -179,14 +176,35 @@ public class ImapWatcherService : BackgroundService
                 }
             }
 
-            if (folder.ParentFolder != null)
+            var archiveFolder = await ResolveFolderAsync(folder, _options.ArchiveFolder, ct);
+            if (archiveFolder != null)
             {
-                var archiveFolder = await folder.ParentFolder.GetSubfolderAsync(_options.ArchiveFolder, ct);
-                if (archiveFolder != null)
-                {
-                    await folder.MoveToAsync(uid, archiveFolder, ct);
-                }
+                await folder.MoveToAsync(uid, archiveFolder, ct);
             }
         }
+    }
+
+    private static async Task<IMailFolder?> ResolveFolderAsync(IMailFolder currentFolder, string targetPath, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(targetPath)) return null;
+
+        var sep = currentFolder.DirectorySeparator;
+        var parts = targetPath.Split(new[] { '/', '.', sep }, StringSplitOptions.RemoveEmptyEntries);
+
+        // Traverse to root parent folder
+        IMailFolder root = currentFolder;
+        while (root.ParentFolder != null)
+        {
+            root = root.ParentFolder;
+        }
+
+        IMailFolder? curr = root;
+        foreach (var part in parts)
+        {
+            if (curr == null) break;
+            curr = await curr.GetSubfolderAsync(part, ct);
+        }
+
+        return curr;
     }
 }
