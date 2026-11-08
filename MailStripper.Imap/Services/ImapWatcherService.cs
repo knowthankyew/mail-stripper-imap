@@ -171,26 +171,26 @@ public class ImapWatcherService : BackgroundService
 
             if (httpsCandidate != null && _options.AutoExecuteSterileUnsubscribe)
             {
-                _logger.LogInformation("Auto-executing sterile RFC 8058 opt-out for {Uid} targeting {Uri}...",
-                    uid, httpsCandidate.SanitizedUri);
+                _logger.LogInformation("Auto-executing sterile RFC 8058 opt-out for {Uid} targeting host {Host}...",
+                    uid, httpsCandidate.Host);
 
                 var dispatchResult = await _dispatcher.DispatchAsync(httpsCandidate.SanitizedUri, unsub, ct);
                 if (dispatchResult.Success)
                 {
                     _logger.LogInformation("Sterile opt-out succeeded (HTTP {Status}) for {Uid}.",
                         dispatchResult.StatusCode, uid);
+
+                    var archiveFolder = await ResolveFolderAsync(folder, _options.ArchiveFolder, ct);
+                    if (archiveFolder != null)
+                    {
+                        await folder.MoveToAsync(uid, archiveFolder, ct);
+                    }
                 }
                 else
                 {
                     _logger.LogWarning("Sterile opt-out failed for {Uid}: {Error}",
                         uid, dispatchResult.ErrorMessage);
                 }
-            }
-
-            var archiveFolder = await ResolveFolderAsync(folder, _options.ArchiveFolder, ct);
-            if (archiveFolder != null)
-            {
-                await folder.MoveToAsync(uid, archiveFolder, ct);
             }
         }
     }
