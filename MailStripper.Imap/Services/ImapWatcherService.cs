@@ -58,29 +58,40 @@ public class ImapWatcherService : BackgroundService
                     await ProcessSingleMessageAsync(folder, uid, stoppingToken);
                 }
 
-                // IDLE loop
+                // IDLE loop: RFC 2177 requires ending IDLE before issuing folder commands
                 while (!stoppingToken.IsCancellationRequested && client.IsConnected)
                 {
                     using var done = new CancellationTokenSource(TimeSpan.FromMinutes(9));
                     using var linked = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken, done.Token);
 
-                    folder.CountChanged += async (sender, e) =>
+                    void OnCountChanged(object? sender, EventArgs e)
                     {
                         try
                         {
-                            var newUids = await folder.SearchAsync(MailKit.Search.SearchQuery.New, stoppingToken);
-                            foreach (var uid in newUids)
-                            {
-                                await ProcessSingleMessageAsync(folder, uid, stoppingToken);
-                            }
+                            done.Cancel();
                         }
-                        catch (Exception ex)
-                        {
-                            _logger.LogError(ex, "Error processing new message during IDLE event.");
-                        }
-                    };
+                        catch (ObjectDisposedException) { }
+                    }
 
-                    await client.IdleAsync(linked.Token);
+                    folder.CountChanged += OnCountChanged;
+                    try
+                    {
+                        await client.IdleAsync(linked.Token);
+                    }
+                    finally
+                    {
+                        folder.CountChanged -= OnCountChanged;
+                    }
+
+                    if (stoppingToken.IsCancellationRequested) break;
+
+                    // Post-IDLE sweep for newly arrived messages
+                    var newUids = await folder.SearchAsync(MailKit.Search.SearchQuery.New, stoppingToken);
+                    foreach (var uid in newUids)
+                    {
+                        if (stoppingToken.IsCancellationRequested) break;
+                        await ProcessSingleMessageAsync(folder, uid, stoppingToken);
+                    }
                 }
 
                 await client.DisconnectAsync(true, stoppingToken);

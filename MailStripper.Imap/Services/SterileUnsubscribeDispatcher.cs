@@ -23,25 +23,28 @@ public class SterileUnsubscribeDispatcher : ISterileUnsubscribeDispatcher
 {
     private readonly HttpClient _sterileHttpClient;
 
-    public SterileUnsubscribeDispatcher(HttpClient? customClient = null)
+    public SterileUnsubscribeDispatcher()
+        : this(CreateDefaultSterileClient())
     {
-        if (customClient != null)
+    }
+
+    internal SterileUnsubscribeDispatcher(HttpClient customClient)
+    {
+        _sterileHttpClient = customClient ?? throw new ArgumentNullException(nameof(customClient));
+    }
+
+    private static HttpClient CreateDefaultSterileClient()
+    {
+        var handler = new SocketsHttpHandler
         {
-            _sterileHttpClient = customClient;
-        }
-        else
+            UseCookies = false,
+            AllowAutoRedirect = false,
+            PooledConnectionLifetime = TimeSpan.FromMinutes(1)
+        };
+        return new HttpClient(handler)
         {
-            var handler = new SocketsHttpHandler
-            {
-                UseCookies = false,
-                AllowAutoRedirect = false,
-                PooledConnectionLifetime = TimeSpan.FromMinutes(1)
-            };
-            _sterileHttpClient = new HttpClient(handler)
-            {
-                Timeout = TimeSpan.FromSeconds(5)
-            };
-        }
+            Timeout = TimeSpan.FromSeconds(5)
+        };
     }
 
     public async Task<DispatchResult> DispatchAsync(
