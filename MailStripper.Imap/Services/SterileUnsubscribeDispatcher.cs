@@ -54,10 +54,11 @@ public class SterileUnsubscribeDispatcher : ISterileUnsubscribeDispatcher
     {
         var executedAt = DateTimeOffset.UtcNow;
 
-        if (report.PoisonSignals.Count > 0)
+        if (report.PoisonSignals.Count > 0 ||
+            string.Equals(report.Classification, "PoisonOrReconTrap", StringComparison.OrdinalIgnoreCase))
         {
             return new DispatchResult(false, 0, targetUri, executedAt,
-                $"Refused: Message contains {report.PoisonSignals.Count} active poison signals.");
+                $"Refused: Message contains {report.PoisonSignals.Count} active poison signals or is classified as PoisonOrReconTrap.");
         }
 
         if (!Uri.TryCreate(targetUri, UriKind.Absolute, out var uri) ||

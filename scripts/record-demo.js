@@ -2,7 +2,7 @@ import path from 'path';
 import fs from 'fs';
 import os from 'os';
 import { fileURLToPath, pathToFileURL } from 'url';
-import { execSync } from 'child_process';
+import { execSync, execFileSync } from 'child_process';
 import { createRequire } from 'module';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -92,72 +92,91 @@ async function sleep(ms) {
   }
 
   console.log(`🎬 Launching Playwright browser for mail-stripper-imap demo recording...`);
+  const launchArgs = ['--disable-gpu', '--window-size=1366,860'];
+  if (process.env.CI || (typeof process.getuid === 'function' && process.getuid() === 0)) {
+    launchArgs.unshift('--no-sandbox');
+  }
+
   const launchOptions = {
     headless: true,
-    args: ['--no-sandbox', '--disable-gpu', '--window-size=1366,860']
+    args: launchArgs
   };
   if (browserExecutable) {
     launchOptions.executablePath = browserExecutable;
   }
 
-  const browser = await chromium.launch(launchOptions);
-
   try {
-    const context = await browser.newContext({
-      viewport: { width: 1366, height: 860 },
-      recordVideo: {
-        dir: tempVideoDir,
-        size: { width: 1366, height: 860 }
-      }
-    });
+    const browser = await chromium.launch(launchOptions);
 
-    const page = await context.newPage();
-
-    const visualizerUrl = pathToFileURL(visualizerHtml).href;
-    console.log(`Step 1: Navigating to Protocol Simulation Visualizer (${visualizerUrl})...`);
-    await page.goto(visualizerUrl, { waitUntil: 'load' });
-
-    console.log('Step 2: Recording real-time protocol simulation and threat segregation...');
-    // The in-browser simulation runs for ~16 seconds
-    await sleep(18500);
-
-    console.log('Step 3: Finalizing video recording...');
-    await page.close();
-    await context.close();
-  } finally {
-    await browser.close();
-  }
-
-  // Locate recorded video sorted by most recent modification time
-  const videoFiles = fs.readdirSync(tempVideoDir)
-    .filter(f => f.endsWith('.webm'))
-    .map(f => ({ name: f, fullPath: path.join(tempVideoDir, f), mtimeMs: fs.statSync(path.join(tempVideoDir, f)).mtimeMs }))
-    .sort((a, b) => b.mtimeMs - a.mtimeMs);
-
-  if (videoFiles.length > 0) {
-    const latestVideo = videoFiles[0].fullPath;
-    const destMp4 = path.join(repoRoot, 'demo.mp4');
-    const destGif = path.join(repoRoot, 'demo.gif');
-    const ffmpegPath = resolveFfmpeg(repoRoot);
-
-    console.log(`Converting recording to web-optimized MP4 (H.264) via ${ffmpegPath}...`);
     try {
-      execSync(`"${ffmpegPath}" -y -i "${latestVideo}" -c:v libx264 -pix_fmt yuv420p -movflags +faststart "${destMp4}"`, { stdio: 'inherit' });
-      const statsMp4 = fs.statSync(destMp4);
-      console.log(`\n🎉 Demo video recorded and saved to: ${destMp4} (${(statsMp4.size / (1024 * 1024)).toFixed(2)} MB)\n`);
+      const context = await browser.newContext({
+        viewport: { width: 1366, height: 860 },
+        recordVideo: {
+          dir: tempVideoDir,
+          size: { width: 1366, height: 860 }
+        }
+      });
 
-      console.log(`Generating animated demo.gif for GitHub README...`);
-      execSync(`"${ffmpegPath}" -y -i "${destMp4}" -vf "fps=10,scale=800:-1:flags=lanczos,split[s0][s1];[s0]palettegen=max_colors=128[p];[s1][p]paletteuse=dither=bayer" "${destGif}"`, { stdio: 'inherit' });
-      const statsGif = fs.statSync(destGif);
-      console.log(`🎉 Demo GIF generated and saved to: ${destGif} (${(statsGif.size / (1024 * 1024)).toFixed(2)} MB)\n`);
-    } catch (e) {
-      console.warn('FFmpeg conversion error:', e.message);
-      fs.copyFileSync(latestVideo, destMp4.replace('.mp4', '.webm'));
+      const page = await context.newPage();
+
+      const visualizerUrl = pathToFileURL(visualizerHtml).href;
+      console.log(`Step 1: Navigating to Protocol Simulation Visualizer (${visualizerUrl})...`);
+      await page.goto(visualizerUrl, { waitUntil: 'load' });
+
+      console.log('Step 2: Recording real-time protocol simulation and threat segregation...');
+      // The in-browser simulation runs for ~16 seconds
+      await sleep(18500);
+
+      console.log('Step 3: Finalizing video recording...');
+      await page.close();
+      await context.close();
+    } finally {
+      await browser.close();
     }
 
+    // Locate recorded video sorted by most recent modification time
+    const videoFiles = fs.readdirSync(tempVideoDir)
+      .filter(f => f.endsWith('.webm'))
+      .map(f => ({ name: f, fullPath: path.join(tempVideoDir, f), mtimeMs: fs.statSync(path.join(tempVideoDir, f)).mtimeMs }))
+      .sort((a, b) => b.mtimeMs - a.mtimeMs);
+
+    if (videoFiles.length > 0) {
+      const latestVideo = videoFiles[0].fullPath;
+      const destMp4 = path.join(repoRoot, 'demo.mp4');
+      const destGif = path.join(repoRoot, 'demo.gif');
+      const ffmpegPath = resolveFfmpeg(repoRoot);
+
+      console.log(`Converting recording to web-optimized MP4 (H.264) via ${ffmpegPath}...`);
+      try {
+        execFileSync(ffmpegPath, [
+          '-y',
+          '-i', latestVideo,
+          '-c:v', 'libx264',
+          '-pix_fmt', 'yuv420p',
+          '-movflags', '+faststart',
+          destMp4
+        ], { stdio: 'inherit' });
+        const statsMp4 = fs.statSync(destMp4);
+        console.log(`\n🎉 Demo video recorded and saved to: ${destMp4} (${(statsMp4.size / (1024 * 1024)).toFixed(2)} MB)\n`);
+
+        console.log(`Generating animated demo.gif for GitHub README...`);
+        execFileSync(ffmpegPath, [
+          '-y',
+          '-i', destMp4,
+          '-vf', 'fps=10,scale=800:-1:flags=lanczos,split[s0][s1];[s0]palettegen=max_colors=128[p];[s1][p]paletteuse=dither=bayer',
+          destGif
+        ], { stdio: 'inherit' });
+        const statsGif = fs.statSync(destGif);
+        console.log(`🎉 Demo GIF generated and saved to: ${destGif} (${(statsGif.size / (1024 * 1024)).toFixed(2)} MB)\n`);
+      } catch (e) {
+        console.warn('FFmpeg conversion error:', e.message);
+        process.exitCode = 1;
+      }
+    } else {
+      console.error('❌ Error: No recorded video file was created in temporary video directory.');
+      process.exitCode = 1;
+    }
+  } finally {
     fs.rmSync(tempVideoDir, { recursive: true, force: true });
-  } else {
-    console.error('❌ Error: No recorded video file was created in temporary video directory.');
-    process.exit(1);
   }
 })();

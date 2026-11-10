@@ -147,7 +147,7 @@ The composition exposes port `5001` on loopback for the analyzer engine and port
 
 ## 🐧 Linux Systemd Service
 
-For bare-metal Linux servers and VMs, a hardened systemd unit file is provided at [`systemd/mail-stripper-imap.service`](systemd/mail-stripper-imap.service):
+For bare-metal Linux servers and VMs, a hardened systemd unit file is provided at [`systemd/mail-stripper-imap.service`](systemd/mail-stripper-imap.service). The unit enforces OS kernel-level sandboxing including `ProtectSystem=strict` (read-only filesystem isolation), `NoNewPrivileges=true` (disabling setuid/setgid privilege escalation), `PrivateTmp=true` (isolated volatile temporary directory namespaces), and unprivileged user execution:
 
 ```bash
 # 1. Install published binaries
@@ -230,7 +230,7 @@ Configuration can be specified in `appsettings.json`, via standard hierarchical 
 
 ## 🧪 Testing & Verification
 
-- **xUnit Automated Tests (50/50 unit tests pass)**:
+- **xUnit Automated Tests (51/51 unit tests pass)**:
   ```bash
   dotnet test
   ```

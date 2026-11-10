@@ -543,8 +543,20 @@
       logs.scrollTop = logs.scrollHeight;
     }
 
+    function escapeHtml(str) {
+      if (!str) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
     function setHealth(status, connected, healthy, uptime, count, err = null) {
-      healthJson.innerHTML = `{\n  <span class="json-key">"status"</span>: <span class="json-str">"${status}"</span>,\n  <span class="json-key">"connected"</span>: <span class="json-bool">${connected}</span>,\n  <span class="json-key">"healthy"</span>: <span class="json-bool">${healthy}</span>,\n  <span class="json-key">"uptimeSeconds"</span>: <span class="json-num">${uptime}</span>,\n  <span class="json-key">"messagesProcessedCount"</span>: <span class="json-num">${count}</span>,\n  <span class="json-key">"lastError"</span>: ${err ? `<span class="json-str">"${err}"</span>` : 'null'}\n}`;
+      const escapedStatus = escapeHtml(status);
+      const escapedErr = err ? `<span class="json-str">"${escapeHtml(err)}"</span>` : 'null';
+      healthJson.innerHTML = `{\n  <span class="json-key">"status"</span>: <span class="json-str">"${escapedStatus}"</span>,\n  <span class="json-key">"connected"</span>: <span class="json-bool">${connected}</span>,\n  <span class="json-key">"healthy"</span>: <span class="json-bool">${healthy}</span>,\n  <span class="json-key">"uptimeSeconds"</span>: <span class="json-num">${uptime}</span>,\n  <span class="json-key">"messagesProcessedCount"</span>: <span class="json-num">${count}</span>,\n  <span class="json-key">"lastError"</span>: ${escapedErr}\n}`;
     }
 
     async function sleep(ms) {

@@ -5,7 +5,85 @@
  */
 
 /**
- * String-aware line comment stripper.
+ * Strips C-style block comments while preserving newlines for accurate line numbers.
+ *
+ * @param {string} content
+ * @returns {string}
+ */
+export function stripBlockComments(content) {
+  return content.replace(/\/\*[\s\S]*?\*\//g, (match) => {
+    const newlines = match.match(/\n/g);
+    return newlines ? newlines.join('') : '';
+  });
+}
+
+/**
+ * C#-aware comment stripper for whole C# source files.
+ * Strips both block comments and line comments while respecting C# character and string literals.
+ *
+ * @param {string} source
+ * @returns {string}
+ */
+export function stripCSharpComments(source) {
+  const noBlock = stripBlockComments(source);
+  return noBlock
+    .split('\n')
+    .map(line => stripCSharpLineComment(line))
+    .join('\n');
+}
+
+/**
+ * Strips C# // comments from a single line while respecting C# strings and char literals.
+ *
+ * @param {string} line
+ * @returns {string}
+ */
+export function stripCSharpLineComment(line) {
+  let inString = false;
+  let inChar = false;
+  let escape = false;
+
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+
+    if (inChar) {
+      if (escape) {
+        escape = false;
+      } else if (c === '\\') {
+        escape = true;
+      } else if (c === "'") {
+        inChar = false;
+      }
+      continue;
+    }
+
+    if (inString) {
+      if (escape) {
+        escape = false;
+      } else if (c === '\\') {
+        escape = true;
+      } else if (c === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (c === "'") {
+      inChar = true;
+      escape = false;
+    } else if (c === '"') {
+      inString = true;
+      escape = false;
+    } else if (c === '/' && line[i + 1] === '/') {
+      return line.slice(0, i);
+    }
+  }
+
+  return line;
+}
+
+/**
+ * String-aware line comment stripper for JS/TS lines.
  * Strips `//` comments while preserving `//` inside string literals.
  *
  * @param {string} line
@@ -39,19 +117,6 @@ export function stripLineComment(line) {
     }
   }
   return line;
-}
-
-/**
- * Strips C-style block comments while preserving newlines for accurate line numbers.
- *
- * @param {string} content
- * @returns {string}
- */
-export function stripBlockComments(content) {
-  return content.replace(/\/\*[\s\S]*?\*\//g, (match) => {
-    const newlines = match.match(/\n/g);
-    return newlines ? newlines.join('') : '';
-  });
 }
 
 /**
@@ -91,21 +156,27 @@ export function scanDocumentationForVocabulary(content, relPath, options = {}) {
   const errors = [];
   const lines = content.split('\n');
   lines.forEach((line, idx) => {
-    const lower = line.toLowerCase();
-    if (
-      lower.includes('prohibits unprovable') ||
-      lower.includes('prohibited word') ||
-      lower.includes('prohibited marketing') ||
-      lower.includes('banned vocabulary') ||
-      lower.includes('banned marketing')
-    ) {
-      return;
-    }
     if (options.isPermittedLine && options.isPermittedLine(line, idx, relPath)) {
       return;
     }
+    const lower = line.toLowerCase();
+    const isMetaPolicyLine =
+      lower.includes('prohibits unprovable') ||
+      lower.includes('prohibited marketing') ||
+      lower.includes('banned vocabulary') ||
+      lower.includes('banned marketing') ||
+      lower.includes('prohibited word');
+
     for (const { term, regex } of BANNED_VOCABULARY) {
       if (regex.test(line)) {
+        // If it's a meta-policy explanation line, allow it only if the term is explicitly quoted
+        // (e.g. `bulletproof` or 'bulletproof' or "bulletproof") to refer to the rule itself.
+        if (isMetaPolicyLine) {
+          const quotedRegex = new RegExp(`['"\`]${term}['"\`]`, 'i');
+          if (quotedRegex.test(line)) {
+            continue;
+          }
+        }
         errors.push(`Vocabulary violation in ${relPath}:${idx + 1}: Prohibited marketing term '${term}' found: "${line.trim()}"`);
       }
     }

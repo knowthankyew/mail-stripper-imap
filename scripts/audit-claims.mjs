@@ -20,6 +20,7 @@ import { execSync } from 'node:child_process';
 import {
   stripLineComment,
   stripBlockComments,
+  stripCSharpComments,
   scanDocumentationForVocabulary,
   BANNED_VOCABULARY,
 } from './claims-linter-core.mjs';
@@ -60,8 +61,16 @@ checkFile('Directory.Packages.props', (content) => {
 });
 
 checkFile('Directory.Build.props', (content) => {
-  if (!content.includes('NU1901') || !content.includes('NU1902') || !content.includes('NU1903') || !content.includes('NU1904')) {
-    errors.push('Directory.Build.props must enforce fail-closed NU1901-NU1904 security audit warnings as fatal errors.');
+  const warningsMatch = content.match(/<WarningsAsErrors>([\s\S]*?)<\/WarningsAsErrors>/);
+  if (!warningsMatch) {
+    errors.push('Directory.Build.props must define <WarningsAsErrors>.');
+  } else {
+    const list = warningsMatch[1];
+    for (const code of ['NU1901', 'NU1902', 'NU1903', 'NU1904']) {
+      if (!list.includes(code)) {
+        errors.push(`Directory.Build.props must list ${code} in <WarningsAsErrors>.`);
+      }
+    }
   }
   if (!content.includes('<NuGetAudit>true</NuGetAudit>')) {
     errors.push('Directory.Build.props must enable <NuGetAudit>true</NuGetAudit>.');
@@ -78,16 +87,17 @@ function scanDirectoryForDiskWrites(dirPath) {
       scanDirectoryForDiskWrites(full);
     } else if (entry.isFile() && entry.name.endsWith('.cs')) {
       const code = fs.readFileSync(full, 'utf8');
-      const stripped = stripBlockComments(stripLineComment(code));
+      const stripped = stripCSharpComments(code);
 
       const forbiddenPrimitives = [
-        { name: 'File.Write*', regex: /\bFile\s*\.\s*(?:WriteAllText|WriteAllBytes|WriteAllLines)\b/ },
-        { name: 'File.Create*', regex: /\bFile\s*\.\s*(?:Create|CreateText)\b/ },
-        { name: 'File.Append*', regex: /\bFile\s*\.\s*(?:AppendAllText|AppendAllLines|AppendText)\b/ },
-        { name: 'File.Open*', regex: /\bFile\s*\.\s*(?:OpenWrite|Open)\b/ },
+        { name: 'File.Write*', regex: /\bFile\s*\.\s*WriteAll\w*/ },
+        { name: 'File.Create*', regex: /\bFile\s*\.\s*Create\w*/ },
+        { name: 'File.Append*', regex: /\bFile\s*\.\s*Append\w*/ },
+        { name: 'File.Open*', regex: /\bFile\s*\.\s*Open\w*/ },
+        { name: 'File.Copy/Move', regex: /\bFile\s*\.\s*(?:Copy|Move)\b/ },
         { name: 'FileStream', regex: /\bFileStream\b/ },
-        { name: 'Path.GetTempFileName', regex: /\bPath\s*\.\s*GetTempFileName\b/ },
-        { name: 'StreamWriter path constructor', regex: /\bnew\s+StreamWriter\s*\(\s*(?:"|[^,)]*?(?:path|fileName|filePath|string\b))/i },
+        { name: 'Path.GetTemp*', regex: /\bPath\s*\.\s*(?:GetTempFileName|GetTempPath|GetRandomFileName)\b/ },
+        { name: 'StreamWriter path constructor', regex: /\bnew\s+StreamWriter\s*\(\s*(?:"|[^,)]*?\b(?:path|file|dest|target|outputPath|string\b))/i },
       ];
 
       for (const primitive of forbiddenPrimitives) {
@@ -102,20 +112,24 @@ scanDirectoryForDiskWrites(path.join(rootDir, 'MailStripper.Imap'));
 
 // ── Invariant 3: Sterile RFC 8058 Dispatching Invariants ──────────────────────
 checkFile('MailStripper.Imap/Services/SterileUnsubscribeDispatcher.cs', (content) => {
-  if (!content.includes('UseCookies = false')) {
+  const stripped = stripCSharpComments(content);
+  if (!stripped.includes('UseCookies = false')) {
     errors.push('SterileUnsubscribeDispatcher must enforce UseCookies = false.');
   }
-  if (!content.includes('AllowAutoRedirect = false')) {
+  if (!stripped.includes('AllowAutoRedirect = false')) {
     errors.push('SterileUnsubscribeDispatcher must enforce AllowAutoRedirect = false.');
   }
-  if (!content.includes('List-Unsubscribe=One-Click')) {
+  if (!stripped.includes('List-Unsubscribe=One-Click')) {
     errors.push('SterileUnsubscribeDispatcher must send standard RFC 8058 body.');
   }
-  if (!content.includes('string.Equals(uri.Scheme, "https"') && !content.includes('Uri.UriSchemeHttps')) {
+  if (!/string\.Equals\s*\(\s*uri\.Scheme\s*,\s*"https"/i.test(stripped) && !stripped.includes('Uri.UriSchemeHttps')) {
     errors.push('SterileUnsubscribeDispatcher must reject non-HTTPS targets.');
   }
-  if (!content.includes('PoisonSignals.Count > 0')) {
+  if (!stripped.includes('PoisonSignals.Count > 0')) {
     errors.push('SterileUnsubscribeDispatcher must reject candidates carrying poison signals.');
+  }
+  if (!stripped.includes('PoisonOrReconTrap')) {
+    errors.push('SterileUnsubscribeDispatcher must reject candidates classified as PoisonOrReconTrap.');
   }
 });
 
@@ -177,13 +191,23 @@ console.log('=== MailStripper IMAP Watcher Claims & Security Invariant Audit ===
 
 let actualTestCount = null;
 try {
-  const testOutput = execSync('dotnet test mail-stripper-imap.slnx', {
-    cwd: rootDir,
-    encoding: 'utf8',
-    stdio: ['pipe', 'pipe', 'pipe'],
-  });
+  let testOutput = '';
+  try {
+    testOutput = execSync('dotnet test mail-stripper-imap.slnx', {
+      cwd: rootDir,
+      encoding: 'utf8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+      maxBuffer: 64 * 1024 * 1024,
+      timeout: 10 * 60 * 1000,
+    });
+  } catch (execErr) {
+    testOutput = (execErr.stdout || '') + '\n' + (execErr.stderr || '');
+    if (!testOutput.trim()) {
+      throw execErr;
+    }
+  }
 
-  const matches = [...testOutput.matchAll(/Passed!\s+-\s+Failed:\s+(\d+),\s+Passed:\s+(\d+),\s+Skipped:\s+(\d+),\s+Total:\s+(\d+)/g)];
+  const matches = [...testOutput.matchAll(/(?:Passed|Failed)!\s+-\s+Failed:\s+(\d+),\s+Passed:\s+(\d+),\s+Skipped:\s+(\d+),\s+Total:\s+(\d+)/g)];
   if (matches.length > 0) {
     let totalFailed = 0;
     let totalPassed = 0;
@@ -197,13 +221,13 @@ try {
     }
 
     if (totalFailed > 0) {
-      errors.push(`Test suite failure: ${totalFailed} tests failed during verification.`);
+      errors.push(`Test suite failure: ${totalFailed} tests failed during verification (${totalPassed}/${totalCount} passed).`);
     } else {
       actualTestCount = totalPassed;
       console.log(`  ✓ Dynamic test runner verification: ${totalPassed}/${totalCount} unit tests passing across ${matches.length} test project(s)`);
     }
   } else {
-    errors.push('Unable to parse test results from dotnet test.');
+    errors.push('Unable to parse test results from dotnet test output.');
   }
 } catch (err) {
   errors.push(`Failed executing dotnet test during claims audit: ${err.message}`);
@@ -213,15 +237,18 @@ try {
 const briefPath = path.join(devRoot, 'KNOWTHANKYEW_PORTFOLIO_MASTER_BRIEF.md');
 if (fs.existsSync(briefPath) && actualTestCount !== null) {
   const briefText = fs.readFileSync(briefPath, 'utf8');
-  // Match `mail-stripper-imap` row: ... (\d+)/(\d+) [uU]nit [tT]ests
-  const briefMatch = briefText.match(/`mail-stripper-imap`.*?(\d+)\/(\d+)\s+unit tests/i);
-  if (briefMatch) {
-    const briefPassed = parseInt(briefMatch[1], 10);
-    const briefTotal = parseInt(briefMatch[2], 10);
-    if (briefPassed !== actualTestCount || briefTotal !== actualTestCount) {
-      errors.push(`Portfolio Brief Drift: KNOWTHANKYEW_PORTFOLIO_MASTER_BRIEF.md documents ${briefPassed}/${briefTotal} unit tests, but test runner executed ${actualTestCount}/${actualTestCount}.`);
-    } else {
-      console.log(`  ✓ Portfolio Master Brief parity verified: ${briefPassed}/${briefTotal} tests documented`);
+  const briefLines = briefText.split('\n');
+  const repoRow = briefLines.find(l => l.includes('`mail-stripper-imap`') && /unit\s+tests/i.test(l));
+  if (repoRow) {
+    const briefMatch = repoRow.match(/(\d+)\/(\d+)\s+(?:[uU]nit\s+[tT]ests|[uU]nit\s+tests\s+pass)/i);
+    if (briefMatch) {
+      const briefPassed = parseInt(briefMatch[1], 10);
+      const briefTotal = parseInt(briefMatch[2], 10);
+      if (briefPassed !== actualTestCount || briefTotal !== actualTestCount) {
+        errors.push(`Portfolio Brief Drift: KNOWTHANKYEW_PORTFOLIO_MASTER_BRIEF.md documents ${briefPassed}/${briefTotal} unit tests, but test runner executed ${actualTestCount}/${actualTestCount}.`);
+      } else {
+        console.log(`  ✓ Portfolio Master Brief parity verified: ${briefPassed}/${briefTotal} tests documented`);
+      }
     }
   }
 }

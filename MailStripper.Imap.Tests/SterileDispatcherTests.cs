@@ -55,6 +55,22 @@ public class SterileDispatcherTests
     }
 
     [Fact]
+    public async Task DispatchAsync_RefusesWhenClassifiedAsPoisonOrReconTrap()
+    {
+        var dispatcher = new SterileUnsubscribeDispatcher();
+        var report = CreateValidReport() with
+        {
+            Classification = "PoisonOrReconTrap"
+        };
+
+        var result = await dispatcher.DispatchAsync("https://optout.example.com/trap", report);
+
+        Assert.False(result.Success);
+        Assert.Equal(0, result.StatusCode);
+        Assert.Contains("PoisonOrReconTrap", result.ErrorMessage);
+    }
+
+    [Fact]
     public async Task DispatchAsync_SetsRfc8058BodyAndDiscardsResponse()
     {
         HttpRequestMessage? capturedRequest = null;
