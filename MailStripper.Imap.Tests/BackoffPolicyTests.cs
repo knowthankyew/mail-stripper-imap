@@ -73,6 +73,46 @@ public class BackoffPolicyTests
     }
 
     [Fact]
+    public void NextDelay_CapsAtMaxDelay_EvenWithMaxJitter()
+    {
+        var maxJitterRandom = new DeterministicRandom(1.0);
+        var policy = new ExponentialBackoffPolicy(
+            initialDelay: TimeSpan.FromSeconds(20),
+            maxDelay: TimeSpan.FromSeconds(25),
+            multiplier: 2.0,
+            random: maxJitterRandom);
+
+        // Attempt 0: 20s + 5s jitter = 25s (clamped to maxDelay: 25s)
+        var delay0 = policy.NextDelay();
+        Assert.Equal(TimeSpan.FromSeconds(25), delay0);
+
+        // Attempt 1: 40s base (capped at 25s) + jitter clamped to 25s
+        var delay1 = policy.NextDelay();
+        Assert.Equal(TimeSpan.FromSeconds(25), delay1);
+    }
+
+    [Fact]
+    public void NextDelay_PreventsArithmeticOverflow_AfterManyAttempts()
+    {
+        var zeroJitterRandom = new DeterministicRandom(0.0);
+        var policy = new ExponentialBackoffPolicy(
+            initialDelay: TimeSpan.FromSeconds(2),
+            maxDelay: TimeSpan.FromSeconds(300),
+            multiplier: 2.0,
+            random: zeroJitterRandom);
+
+        // Advance 2000 retries without throwing NaN or infinity
+        for (int i = 0; i < 2000; i++)
+        {
+            policy.NextDelay();
+        }
+
+        var delay = policy.NextDelay();
+        Assert.Equal(TimeSpan.FromSeconds(300), delay);
+        Assert.Equal(2001, policy.CurrentAttempt);
+    }
+
+    [Fact]
     public void Reset_ClearsCurrentAttempt()
     {
         var policy = new ExponentialBackoffPolicy(TimeSpan.FromSeconds(1));

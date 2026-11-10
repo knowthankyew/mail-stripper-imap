@@ -78,6 +78,7 @@ public class ImapFolderManager : IImapFolderManager
     private async Task<IMailFolder> EnsureFolderFromRootAsync(IMailFolder root, string folderPath, CancellationToken ct)
     {
         var sep = root.DirectorySeparator;
+        // '/' is the portable cross-platform configuration separator; sep is the server-specific namespace delimiter
         var parts = folderPath.Split(new[] { '/', sep }, StringSplitOptions.RemoveEmptyEntries);
 
         IMailFolder current = root;

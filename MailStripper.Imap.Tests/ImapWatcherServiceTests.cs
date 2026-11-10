@@ -332,13 +332,58 @@ public class ImapWatcherServiceTests
             NullLogger<ImapWatcherService>.Instance,
             backoff);
 
-        await service.RunAsync(cts.Token);
+        await service.RunAsync(cts.Token).WaitAsync(TimeSpan.FromSeconds(10));
 
         // Assert: Factory created client 1 (failed) and client 2 (recovered)
         clientFactory.Received(2).CreateClient();
 
         // Assert: NextDelay was called on backoff for the failure
         backoff.Received(1).NextDelay();
+    }
+
+    [Fact]
+    public async Task ProcessSingleMessageAsync_AlreadyTaggedSafeUnsubscribed_SkipsAnalysisAndDispatch()
+    {
+        var uid = new UniqueId(999);
+        var folder = Substitute.For<IMailFolder>();
+        var summary = Substitute.For<IMessageSummary>();
+        summary.Keywords.Returns(new System.Collections.Generic.HashSet<string> { ImapKeywords.SafeUnsubscribed });
+
+        folder.FetchAsync(
+            Arg.Any<System.Collections.Generic.IList<UniqueId>>(),
+            Arg.Any<IFetchRequest>(),
+            Arg.Any<CancellationToken>())
+            .Returns(new System.Collections.Generic.List<IMessageSummary> { summary });
+
+        var mailStripperClient = Substitute.For<IMailStripperClient>();
+        var dispatcher = Substitute.For<ISterileUnsubscribeDispatcher>();
+        var folderManager = Substitute.For<IImapFolderManager>();
+        var clientFactory = Substitute.For<IImapClientFactory>();
+
+        var options = Options.Create(new ImapOptions { AutoExecuteSterileUnsubscribe = true });
+        var service = new ImapWatcherService(
+            options,
+            mailStripperClient,
+            dispatcher,
+            folderManager,
+            clientFactory,
+            NullLogger<ImapWatcherService>.Instance);
+
+        await service.ProcessSingleMessageAsync(folder, uid, CancellationToken.None);
+
+        // Verify message was never downloaded
+        await folder.DidNotReceive().GetMessageAsync(uid, Arg.Any<CancellationToken>());
+
+        // Verify analysis and dispatcher were skipped
+        await mailStripperClient.DidNotReceive().AnalyzeMessageStreamAsync(
+            Arg.Any<Stream>(),
+            Arg.Any<string>(),
+            Arg.Any<string?>(),
+            Arg.Any<CancellationToken>());
+        await dispatcher.DidNotReceive().DispatchAsync(
+            Arg.Any<string>(),
+            Arg.Any<ForensicReportDto>(),
+            Arg.Any<CancellationToken>());
     }
 
     private class TestableImapWatcherService : ImapWatcherService

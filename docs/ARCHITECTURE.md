@@ -109,6 +109,8 @@ sequenceDiagram
     end
 ```
 
+> **Operator Dry-Run Mode**: When `AutoExecuteSterileUnsubscribe` is `false` (the default setting), valid candidates remain in `@Safe-Unsubscribe` for manual operator review without executing HTTP requests or moving to Archive.
+
 ---
 
 ## 3. Core Architectural Invariants

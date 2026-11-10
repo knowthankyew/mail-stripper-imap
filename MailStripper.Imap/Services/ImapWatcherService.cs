@@ -75,8 +75,7 @@ public class ImapWatcherService : BackgroundService
                     await TryProcessMessageAsync(folder, uid, stoppingToken);
                 }
 
-                // Successful connect, provision, and initial sweep: reset backoff
-                backoff.Reset();
+                var connectionEstablished = DateTimeOffset.UtcNow;
 
                 // IDLE loop: RFC 2177 requires ending IDLE before issuing folder commands
                 while (!stoppingToken.IsCancellationRequested && client.IsConnected)
@@ -97,6 +96,8 @@ public class ImapWatcherService : BackgroundService
                     try
                     {
                         await client.IdleAsync(linked.Token);
+                        // Reset backoff once connection has demonstrated stability through an IDLE cycle
+                        backoff.Reset();
                     }
                     finally
                     {
@@ -111,6 +112,11 @@ public class ImapWatcherService : BackgroundService
                     {
                         if (stoppingToken.IsCancellationRequested) break;
                         await TryProcessMessageAsync(folder, uid, stoppingToken);
+                    }
+
+                    if (DateTimeOffset.UtcNow - connectionEstablished >= TimeSpan.FromMinutes(1))
+                    {
+                        backoff.Reset();
                     }
                 }
 
@@ -159,6 +165,25 @@ public class ImapWatcherService : BackgroundService
 
     public async Task ProcessSingleMessageAsync(IMailFolder folder, UniqueId uid, CancellationToken ct)
     {
+        // Check message flags to prevent duplicate execution across reconnect sweeps
+        var summaries = await folder.FetchAsync(new[] { uid }, MessageSummaryItems.Flags, ct);
+        var summary = summaries?.FirstOrDefault();
+        if (summary != null)
+        {
+            if (summary.Keywords.Contains(ImapKeywords.SafeUnsubscribed))
+            {
+                _logger.LogInformation("Message {Uid} already carries {Keyword}. Skipping re-processing.",
+                    uid, ImapKeywords.SafeUnsubscribed);
+                return;
+            }
+            if (summary.Keywords.Contains(ImapKeywords.SuspiciousTrap))
+            {
+                _logger.LogInformation("Message {Uid} already carries {Keyword}. Skipping re-processing.",
+                    uid, ImapKeywords.SuspiciousTrap);
+                return;
+            }
+        }
+
         // 1. Download message body into volatile memory stream (Zero Disk Writes)
         var mimeMessage = await folder.GetMessageAsync(uid, ct);
         using var memoryStream = new MemoryStream();
@@ -219,6 +244,10 @@ public class ImapWatcherService : BackgroundService
                 {
                     _logger.LogInformation("Sterile opt-out succeeded (HTTP {Status}) for {Uid}. Tagging {Keyword} and moving to Archive.",
                         dispatchResult.StatusCode, uid, ImapKeywords.SafeUnsubscribed);
+
+                    // Apply keyword immediately on source folder so that even if folder move encounters an error,
+                    // future sweeps will not re-dispatch another opt-out POST
+                    await _folderManager.TryAddCustomKeywordAsync(folder, uid, ImapKeywords.SafeUnsubscribed, ct);
 
                     var archiveFolder = await _folderManager.ResolveFolderAsync(folder, _options.ArchiveFolder, ct);
                     if (archiveFolder != null)

@@ -7,6 +7,10 @@ public interface IBackoffPolicy
     void Reset();
 }
 
+/// <summary>
+/// Thread-safety contract: This policy is designed for single-threaded sequential retry loops
+/// within a single background service instance.
+/// </summary>
 public class ExponentialBackoffPolicy : IBackoffPolicy
 {
     private readonly TimeSpan _initialDelay;
@@ -32,10 +36,13 @@ public class ExponentialBackoffPolicy : IBackoffPolicy
 
     public TimeSpan NextDelay()
     {
-        double delayMs = _initialDelay.TotalMilliseconds * Math.Pow(_multiplier, _attempt);
+        // Cap exponent at 30 to prevent floating-point infinity and NaN during extended retries
+        int effectiveExponent = Math.Min(_attempt, 30);
+        double delayMs = _initialDelay.TotalMilliseconds * Math.Pow(_multiplier, effectiveExponent);
+        delayMs = Math.Min(delayMs, _maxDelay.TotalMilliseconds);
         _attempt++;
 
-        // Add 0-25% randomized jitter to mitigate thundering herd
+        // Add 0-25% randomized jitter to mitigate thundering herd, clamped to max delay
         double jitter = delayMs * 0.25 * _random.NextDouble();
         return TimeSpan.FromMilliseconds(Math.Min(delayMs + jitter, _maxDelay.TotalMilliseconds));
     }
