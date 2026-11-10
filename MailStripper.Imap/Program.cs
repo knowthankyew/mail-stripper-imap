@@ -10,8 +10,7 @@ var builder = Host.CreateApplicationBuilder(args);
 
 builder.Services.AddOptions<ImapOptions>()
     .Bind(builder.Configuration.GetSection(ImapOptions.SectionName))
-    .Validate(opts => opts.ReconnectInitialDelaySeconds >= 1, "ReconnectInitialDelaySeconds must be at least 1 second.")
-    .Validate(opts => opts.ReconnectMaxDelaySeconds >= opts.ReconnectInitialDelaySeconds, "ReconnectMaxDelaySeconds must be greater than or equal to ReconnectInitialDelaySeconds.")
+    .ValidateDataAnnotations()
     .ValidateOnStart();
 
 builder.Services.AddHttpClient<IMailStripperClient, MailStripperClient>((sp, client) =>

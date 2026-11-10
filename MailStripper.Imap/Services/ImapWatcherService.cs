@@ -148,8 +148,8 @@ public class ImapWatcherService : BackgroundService
         {
             await ProcessSingleMessageAsync(folder, uid, ct);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException
-                                   and not IOException
+        catch (Exception ex) when (!ct.IsCancellationRequested
+                                   && ex is not IOException
                                    and not ImapProtocolException
                                    and not ServiceNotConnectedException)
         {
