@@ -68,6 +68,8 @@ export function testNetworkPrimitive(line) {
 
 /**
  * Prohibited marketing buzzwords.
+ * Note: Regex entries intentionally omit the 'g' flag so that repeated .test() calls
+ * remain completely stateless and never depend on shared lastIndex state across lines.
  */
 export const BANNED_VOCABULARY = [
   { term: 'bulletproof', regex: /\bbullet-?proof\b/i },

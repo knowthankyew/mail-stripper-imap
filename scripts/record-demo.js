@@ -1,7 +1,7 @@
 import path from 'path';
 import fs from 'fs';
 import os from 'os';
-import { fileURLToPath } from 'url';
+import { fileURLToPath, pathToFileURL } from 'url';
 import { execSync } from 'child_process';
 import { createRequire } from 'module';
 
@@ -48,6 +48,8 @@ function resolveFfmpeg(repoRoot) {
     if (fs.existsSync(p)) return p;
   }
 
+  // macOS-specific cache lookup for Playwright-managed ffmpeg builds;
+  // non-macOS environments rely on system ffmpeg or ffmpeg-static above.
   const cacheDir = path.join(os.homedir(), 'Library/Caches/ms-playwright');
   if (fs.existsSync(cacheDir)) {
     for (const entry of fs.readdirSync(cacheDir)) {
@@ -75,7 +77,8 @@ async function sleep(ms) {
     throw new Error(`Demo visualizer not found at ${visualizerHtml}`);
   }
 
-  // Look for installed browser executable if needed
+  // Look for standard macOS browser installation; on Linux/Windows, Playwright launches
+  // its default bundled Chromium binary automatically when executablePath is undefined.
   let browserExecutable = undefined;
   const browserCandidates = [
     '/Applications/Brave Browser.app/Contents/MacOS/Brave Browser',
@@ -99,32 +102,40 @@ async function sleep(ms) {
 
   const browser = await chromium.launch(launchOptions);
 
-  const context = await browser.newContext({
-    viewport: { width: 1366, height: 860 },
-    recordVideo: {
-      dir: tempVideoDir,
-      size: { width: 1366, height: 860 }
-    }
-  });
+  try {
+    const context = await browser.newContext({
+      viewport: { width: 1366, height: 860 },
+      recordVideo: {
+        dir: tempVideoDir,
+        size: { width: 1366, height: 860 }
+      }
+    });
 
-  const page = await context.newPage();
+    const page = await context.newPage();
 
-  console.log(`Step 1: Navigating to Protocol Simulation Visualizer (${visualizerHtml})...`);
-  await page.goto(`file://${visualizerHtml}`, { waitUntil: 'load' });
+    const visualizerUrl = pathToFileURL(visualizerHtml).href;
+    console.log(`Step 1: Navigating to Protocol Simulation Visualizer (${visualizerUrl})...`);
+    await page.goto(visualizerUrl, { waitUntil: 'load' });
 
-  console.log('Step 2: Recording real-time protocol simulation and threat segregation...');
-  // The in-browser simulation runs for ~16 seconds
-  await sleep(18500);
+    console.log('Step 2: Recording real-time protocol simulation and threat segregation...');
+    // The in-browser simulation runs for ~16 seconds
+    await sleep(18500);
 
-  console.log('Step 3: Finalizing video recording...');
-  await page.close();
-  await context.close();
-  await browser.close();
+    console.log('Step 3: Finalizing video recording...');
+    await page.close();
+    await context.close();
+  } finally {
+    await browser.close();
+  }
 
-  // Locate recorded video
-  const videoFiles = fs.readdirSync(tempVideoDir).filter(f => f.endsWith('.webm'));
+  // Locate recorded video sorted by most recent modification time
+  const videoFiles = fs.readdirSync(tempVideoDir)
+    .filter(f => f.endsWith('.webm'))
+    .map(f => ({ name: f, fullPath: path.join(tempVideoDir, f), mtimeMs: fs.statSync(path.join(tempVideoDir, f)).mtimeMs }))
+    .sort((a, b) => b.mtimeMs - a.mtimeMs);
+
   if (videoFiles.length > 0) {
-    const latestVideo = path.join(tempVideoDir, videoFiles[videoFiles.length - 1]);
+    const latestVideo = videoFiles[0].fullPath;
     const destMp4 = path.join(repoRoot, 'demo.mp4');
     const destGif = path.join(repoRoot, 'demo.gif');
     const ffmpegPath = resolveFfmpeg(repoRoot);

@@ -528,7 +528,17 @@
       const ts = new Date().toISOString().substring(11, 19);
       const div = document.createElement('div');
       div.className = 'log-line';
-      div.innerHTML = `<span class="log-ts">[${ts}]</span><span class="${cls}">${text}</span>`;
+
+      const tsSpan = document.createElement('span');
+      tsSpan.className = 'log-ts';
+      tsSpan.textContent = `[${ts}]`;
+
+      const msgSpan = document.createElement('span');
+      msgSpan.className = cls;
+      msgSpan.textContent = text;
+
+      div.appendChild(tsSpan);
+      div.appendChild(msgSpan);
       logs.appendChild(div);
       logs.scrollTop = logs.scrollHeight;
     }

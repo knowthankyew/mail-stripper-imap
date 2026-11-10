@@ -78,8 +78,22 @@ function scanDirectoryForDiskWrites(dirPath) {
       scanDirectoryForDiskWrites(full);
     } else if (entry.isFile() && entry.name.endsWith('.cs')) {
       const code = fs.readFileSync(full, 'utf8');
-      if (code.includes('File.WriteAll') || code.includes('File.Create') || (code.includes('StreamWriter') && !code.includes('MemoryStream'))) {
-        errors.push(`Found forbidden disk write API in ${entry.name}. Ingestion must use volatile MemoryStream only.`);
+      const stripped = stripBlockComments(stripLineComment(code));
+
+      const forbiddenPrimitives = [
+        { name: 'File.Write*', regex: /\bFile\s*\.\s*(?:WriteAllText|WriteAllBytes|WriteAllLines)\b/ },
+        { name: 'File.Create*', regex: /\bFile\s*\.\s*(?:Create|CreateText)\b/ },
+        { name: 'File.Append*', regex: /\bFile\s*\.\s*(?:AppendAllText|AppendAllLines|AppendText)\b/ },
+        { name: 'File.Open*', regex: /\bFile\s*\.\s*(?:OpenWrite|Open)\b/ },
+        { name: 'FileStream', regex: /\bFileStream\b/ },
+        { name: 'Path.GetTempFileName', regex: /\bPath\s*\.\s*GetTempFileName\b/ },
+        { name: 'StreamWriter path constructor', regex: /\bnew\s+StreamWriter\s*\(\s*(?:"|[^,)]*?(?:path|fileName|filePath|string\b))/i },
+      ];
+
+      for (const primitive of forbiddenPrimitives) {
+        if (primitive.regex.test(stripped)) {
+          errors.push(`Found forbidden disk write API (${primitive.name}) in ${entry.name}. Ingestion must use volatile MemoryStream only.`);
+        }
       }
     }
   }
@@ -169,17 +183,24 @@ try {
     stdio: ['pipe', 'pipe', 'pipe'],
   });
 
-  const match = testOutput.match(/Passed!\s+-\s+Failed:\s+(\d+),\s+Passed:\s+(\d+),\s+Skipped:\s+(\d+),\s+Total:\s+(\d+)/);
-  if (match) {
-    const failed = parseInt(match[1], 10);
-    const passed = parseInt(match[2], 10);
-    const total = parseInt(match[4], 10);
+  const matches = [...testOutput.matchAll(/Passed!\s+-\s+Failed:\s+(\d+),\s+Passed:\s+(\d+),\s+Skipped:\s+(\d+),\s+Total:\s+(\d+)/g)];
+  if (matches.length > 0) {
+    let totalFailed = 0;
+    let totalPassed = 0;
+    let totalSkipped = 0;
+    let totalCount = 0;
+    for (const m of matches) {
+      totalFailed += parseInt(m[1], 10);
+      totalPassed += parseInt(m[2], 10);
+      totalSkipped += parseInt(m[3], 10);
+      totalCount += parseInt(m[4], 10);
+    }
 
-    if (failed > 0) {
-      errors.push(`Test suite failure: ${failed} tests failed during verification.`);
+    if (totalFailed > 0) {
+      errors.push(`Test suite failure: ${totalFailed} tests failed during verification.`);
     } else {
-      actualTestCount = passed;
-      console.log(`  ✓ Dynamic test runner verification: ${passed}/${total} unit tests passing`);
+      actualTestCount = totalPassed;
+      console.log(`  ✓ Dynamic test runner verification: ${totalPassed}/${totalCount} unit tests passing across ${matches.length} test project(s)`);
     }
   } else {
     errors.push('Unable to parse test results from dotnet test.');
