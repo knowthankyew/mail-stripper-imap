@@ -386,6 +386,71 @@ public class ImapWatcherServiceTests
             Arg.Any<CancellationToken>());
     }
 
+    [Fact]
+    public async Task ProcessSingleMessageAsync_EmitsAuditReportAndTagsAuditLogged_OnForensicVerdict()
+    {
+        var uid = new UniqueId(777);
+        var folder = Substitute.For<IMailFolder>();
+        var auditFolder = Substitute.For<IMailFolder>();
+        folder.GetMessageAsync(uid, Arg.Any<CancellationToken>()).Returns(CreateDummyMessage());
+
+        var mailStripperClient = Substitute.For<IMailStripperClient>();
+        var report = CreateForensicReport("OneClickPostCandidate", targetUri: "https://example.com/opt-out");
+        mailStripperClient.AnalyzeMessageStreamAsync(
+            Arg.Any<Stream>(),
+            Arg.Any<string>(),
+            Arg.Any<string?>(),
+            Arg.Any<CancellationToken>())
+            .Returns(new StripFileResponse("id777", "Title", "Summary", report));
+
+        var dispatcher = Substitute.For<ISterileUnsubscribeDispatcher>();
+        var folderManager = Substitute.For<IImapFolderManager>();
+        var clientFactory = Substitute.For<IImapClientFactory>();
+        var auditGenerator = Substitute.For<IMimeAuditGenerator>();
+        var generatedAuditMessage = new MimeMessage();
+
+        auditGenerator.GenerateAuditMessage(Arg.Any<AuditContext>())
+            .Returns(generatedAuditMessage);
+
+        folderManager.ResolveFolderAsync(folder, "@Safe-Unsubscribe/Audit", Arg.Any<CancellationToken>())
+            .Returns(auditFolder);
+
+        var options = Options.Create(new ImapOptions
+        {
+            AuditFolder = "@Safe-Unsubscribe/Audit",
+            AutoExecuteSterileUnsubscribe = false // dry-run mode
+        });
+
+        var service = new ImapWatcherService(
+            options,
+            mailStripperClient,
+            dispatcher,
+            folderManager,
+            clientFactory,
+            auditGenerator,
+            NullLogger<ImapWatcherService>.Instance);
+
+        await service.ProcessSingleMessageAsync(folder, uid, CancellationToken.None);
+
+        // Verify audit message was generated with correct context
+        auditGenerator.Received(1).GenerateAuditMessage(Arg.Is<AuditContext>(ctx =>
+            ctx.ForensicReport.Classification == "OneClickPostCandidate" &&
+            ctx.DispatchResult == null));
+
+        // Verify audit message was appended to audit folder
+        await folderManager.Received(1).AppendAuditMessageAsync(
+            auditFolder,
+            generatedAuditMessage,
+            Arg.Any<CancellationToken>());
+
+        // Verify source message tagged with $AuditLogged
+        await folderManager.Received(1).TryAddCustomKeywordAsync(
+            folder,
+            uid,
+            ImapKeywords.AuditLogged,
+            Arg.Any<CancellationToken>());
+    }
+
     private class TestableImapWatcherService : ImapWatcherService
     {
         public TestableImapWatcherService(

@@ -15,6 +15,7 @@ public class ImapWatcherService : BackgroundService
     private readonly ISterileUnsubscribeDispatcher _dispatcher;
     private readonly IImapFolderManager _folderManager;
     private readonly IImapClientFactory _clientFactory;
+    private readonly IMimeAuditGenerator _auditGenerator;
     private readonly IBackoffPolicy? _backoffPolicy;
     private readonly ILogger<ImapWatcherService> _logger;
 
@@ -24,6 +25,7 @@ public class ImapWatcherService : BackgroundService
         ISterileUnsubscribeDispatcher dispatcher,
         IImapFolderManager folderManager,
         IImapClientFactory clientFactory,
+        IMimeAuditGenerator auditGenerator,
         ILogger<ImapWatcherService> logger,
         IBackoffPolicy? backoffPolicy = null)
     {
@@ -32,8 +34,21 @@ public class ImapWatcherService : BackgroundService
         _dispatcher = dispatcher;
         _folderManager = folderManager;
         _clientFactory = clientFactory;
+        _auditGenerator = auditGenerator;
         _logger = logger;
         _backoffPolicy = backoffPolicy;
+    }
+
+    public ImapWatcherService(
+        IOptions<ImapOptions> options,
+        IMailStripperClient mailStripperClient,
+        ISterileUnsubscribeDispatcher dispatcher,
+        IImapFolderManager folderManager,
+        IImapClientFactory clientFactory,
+        ILogger<ImapWatcherService> logger,
+        IBackoffPolicy? backoffPolicy = null)
+        : this(options, mailStripperClient, dispatcher, folderManager, clientFactory, new MimeAuditGenerator(), logger, backoffPolicy)
+    {
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -195,6 +210,7 @@ public class ImapWatcherService : BackgroundService
             return;
         }
 
+        var rawBytes = memoryStream.ToArray();
         memoryStream.Position = 0;
 
         // 2. Transmit raw stream to local mailStripper (:5001)
@@ -225,9 +241,12 @@ public class ImapWatcherService : BackgroundService
             {
                 await _folderManager.MoveWithKeywordAsync(folder, uid, quarantineFolder, ImapKeywords.SuspiciousTrap, ct);
             }
+
+            await EmitAuditReportAsync(folder, uid, mimeMessage, rawBytes, unsub, null, ct);
             return;
         }
 
+        DispatchResult? dispatchResult = null;
         if (unsub.Classification == "OneClickPostCandidate")
         {
             var httpsCandidate = unsub.Candidates.FirstOrDefault(c =>
@@ -239,7 +258,7 @@ public class ImapWatcherService : BackgroundService
                 _logger.LogInformation("Auto-executing sterile RFC 8058 opt-out for {Uid} targeting host {Host}...",
                     uid, httpsCandidate.Host);
 
-                var dispatchResult = await _dispatcher.DispatchAsync(httpsCandidate.SanitizedUri, unsub, ct);
+                dispatchResult = await _dispatcher.DispatchAsync(httpsCandidate.SanitizedUri, unsub, ct);
                 if (dispatchResult.Success)
                 {
                     _logger.LogInformation("Sterile opt-out succeeded (HTTP {Status}) for {Uid}. Tagging {Keyword} and moving to Archive.",
@@ -261,6 +280,38 @@ public class ImapWatcherService : BackgroundService
                         uid, dispatchResult.ErrorMessage);
                 }
             }
+        }
+
+        // 4. In-Mailbox Audit Report Generation & Append (Milestone 3)
+        await EmitAuditReportAsync(folder, uid, mimeMessage, rawBytes, unsub, dispatchResult, ct);
+    }
+
+    private async Task EmitAuditReportAsync(
+        IMailFolder folder,
+        UniqueId uid,
+        MimeMessage mimeMessage,
+        byte[] rawBytes,
+        ForensicReportDto unsub,
+        DispatchResult? dispatchResult,
+        CancellationToken ct)
+    {
+        try
+        {
+            var auditFolder = await _folderManager.ResolveFolderAsync(folder, _options.AuditFolder, ct);
+            if (auditFolder != null)
+            {
+                var auditContext = new AuditContext(mimeMessage, rawBytes, unsub, dispatchResult);
+                var auditMessage = _auditGenerator.GenerateAuditMessage(auditContext);
+                await _folderManager.AppendAuditMessageAsync(auditFolder, auditMessage, ct);
+                await _folderManager.TryAddCustomKeywordAsync(folder, uid, ImapKeywords.AuditLogged, ct);
+            }
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested
+                                   && ex is not IOException
+                                   and not ImapProtocolException
+                                   and not ServiceNotConnectedException)
+        {
+            _logger.LogError(ex, "Failed to emit audit report for message {Uid}.", uid);
         }
     }
 }

@@ -24,7 +24,7 @@ Under portfolio governance boundaries:
 |:----------|:------:|:------------|:------:|
 | **Milestone 1** | `v0.1.0` | **Scaffold & In-Memory Pipeline**: .NET 10 solution, CPM, MailKit integration, streaming client, sterile dispatcher, unit tests, claims linter | 🟢 **Implemented** |
 | **Milestone 2** | `v0.2.0` | **Folder Quarantine & Segregation**: Automatic creation of `@Safe-Unsubscribe` subfolders, flag tagging (`$SafeUnsubscribed`, `$SuspiciousTrap`), moving messages | 🟢 **Implemented** |
-| **Milestone 3** | `v0.3.0` | **In-Mailbox Audit Reports**: Generates cryptographic audit summary MIME messages inside `@Safe-Unsubscribe/Audit` with forensic verdicts | 📋 **Planned** |
+| **Milestone 3** | `v0.3.0` | **In-Mailbox Audit Reports**: Generates cryptographic audit summary MIME messages inside `@Safe-Unsubscribe/Audit` with forensic verdicts | 🟢 **Implemented** |
 | **Milestone 4** | `v0.4.0` | **Containerized Microservice & Systemd Unit**: Docker container definition, Linux systemd unit, healthcheck endpoint | 📋 **Planned** |
 
 ---
@@ -57,16 +57,16 @@ Under portfolio governance boundaries:
   - `@Safe-Unsubscribe/Quarantine` (Phishing / Recon traps)
   - `@Safe-Unsubscribe/Audit` (Audit logs)
 - [x] **Message Flag Tagging**: Apply IMAP custom keywords (`$SafeUnsubscribed`, `$SuspiciousTrap`).
-- [ ] **Audit Flag**: Apply `$AuditLogged` after the audit report is appended (Milestone 3).
+- [x] **Audit Flag**: Apply `$AuditLogged` after the audit report is appended (Milestone 3).
 - [x] **Batch Recovery**: Reconnect retry loop with exponential backoff on network drop.
 
 ### Milestone 3: In-Mailbox Audit Reports (`v0.3.0`)
-- [ ] **MIME Audit Generator**: Synthesize a clean, defanged RFC 822 summary message containing:
+- [x] **MIME Audit Generator**: Synthesize a clean, defanged RFC 822 summary message containing:
   - Original sender and subject.
   - Forensic risk score (0-100) and classification.
   - Matched receiving MX and DKIM domain alignments.
   - Exact timestamp and sterile HTTP status returned by the target ESP.
-- [ ] **Append to Audit Mailbox**: Append the generated audit MIME message directly to `@Safe-Unsubscribe/Audit`.
+- [x] **Append to Audit Mailbox**: Append the generated audit MIME message directly to `@Safe-Unsubscribe/Audit`.
 
 ### Milestone 4: Production Deployment & Containerization (`v0.4.0`)
 - [ ] **Multi-Stage Dockerfile**: Minimal Chiseled Ubuntu / Alpine container running non-root daemon.

@@ -15,7 +15,8 @@ Companion client to [`knowthankyew/mail-stripper`](https://github.com/knowthanky
 4. 🔬 **Deep Forensic Analysis**: Streams raw bytes to your local `mailStripper` engine (`http://localhost:5001/api/strip/file`) for RFC 8058, RFC 2369, DKIM, and receiving MX forensics.
 5. 🚨 **Threat Segregation & Flagging**: Instantly tags messages with `$SuspiciousTrap` and moves deceptive phishing lures, punycode traps, and unaligned reconnaissance links to `@Safe-Unsubscribe/Quarantine`.
 6. 🔒 **Optional Sterile Automated Opt-Out**: When explicitly enabled by the operator (`AutoExecuteSterileUnsubscribe: true`), fires an isolated zero-cookie RFC 8058 HTTP POST for verified newsletters, tags `$SafeUnsubscribed`, and moves them to `@Safe-Unsubscribe/Archive`.
-7. 🛡️ **Supply Chain Assurance**: Central Package Management (CPM) with MSBuild fail-closed vulnerability gating (`NU1903/NU1904`).
+7. 📑 **In-Mailbox Forensic Audit Reports**: Synthesizes cryptographic RFC 822 MIME summary reports into `@Safe-Unsubscribe/Audit` with defanged URLs, SHA-256 original message digest, MX verification, and sterile HTTP dispatch status, tagged with `$AuditLogged`.
+8. 🛡️ **Supply Chain Assurance**: Central Package Management (CPM) with MSBuild fail-closed vulnerability gating (`NU1903/NU1904`).
 
 ---
 

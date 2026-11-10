@@ -34,6 +34,7 @@ flowchart TD
         Watcher["🔄 IMAP IDLE Listener<br/><code>MailStripper.Imap/Services/ImapWatcherService.cs</code>"]
         FolderMgr["📁 Folder & Flag Manager<br/><code>MailStripper.Imap/Services/ImapFolderManager.cs</code>"]
         Backoff["⏱️ Exponential Backoff Policy<br/><code>MailStripper.Imap/Services/ExponentialBackoffPolicy.cs</code>"]
+        AuditGen["📑 MIME Audit Generator<br/><code>MailStripper.Imap/Services/MimeAuditGenerator.cs</code>"]
         MemBuffer["💾 Transient Memory Buffer<br/><i>System.IO.MemoryStream (Zero Disk)</i>"]
         MSClient["📡 mailStripper Client<br/><code>MailStripper.Imap/Services/MailStripperClient.cs</code>"]
         SterileExec["🔒 Sterile RFC 8058 Dispatcher<br/><code>MailStripper.Imap/Services/SterileUnsubscribeDispatcher.cs</code>"]
@@ -67,7 +68,7 @@ flowchart TD
     classDef esp fill:#78350f,stroke:#f59e0b,stroke-width:2px,color:#f8fafc;
 
     class IMAPServer,ArchiveBox,QuarantineBox,AuditBox remote;
-    class Watcher,FolderMgr,Backoff,MemBuffer,MSClient,SterileExec core;
+    class Watcher,FolderMgr,Backoff,AuditGen,MemBuffer,MSClient,SterileExec core;
     class MailStripper local;
     class ESPEndpoint esp;
 ```
@@ -81,6 +82,7 @@ sequenceDiagram
     participant IMAP as Remote IMAP Server
     participant Watcher as ImapWatcherService.cs
     participant FolderMgr as ImapFolderManager.cs
+    participant AuditGen as MimeAuditGenerator.cs
     participant LocalMS as mailStripper (:5001)
     participant RemoteESP as Remote ESP Endpoint
 
@@ -97,15 +99,24 @@ sequenceDiagram
         Watcher->>FolderMgr: MoveWithKeywordAsync(folder, uid, Quarantine, $SuspiciousTrap)
         FolderMgr->>IMAP: AddFlagsAsync(uid, $SuspiciousTrap)
         FolderMgr->>IMAP: MoveToAsync(uid, @Safe-Unsubscribe/Quarantine)
+        Watcher->>AuditGen: GenerateAuditMessage(context)
+        Watcher->>FolderMgr: AppendAuditMessageAsync(AuditFolder, auditMsg)
+        FolderMgr->>IMAP: AppendAsync(auditMsg, $AuditLogged)
+        FolderMgr->>IMAP: AddFlagsAsync(uid, $AuditLogged)
     else Qualifying RFC 8058 Candidate (Safe)
         opt Operator Configured AutoExecuteSterileUnsubscribe = true
             Watcher->>RemoteESP: POST List-Unsubscribe=One-Click (UseCookies: false)
             RemoteESP-->>Watcher: HTTP 200 OK
             Watcher->>Watcher: Dispose response stream immediately
+            Watcher->>FolderMgr: TryAddCustomKeywordAsync(folder, uid, $SafeUnsubscribed)
             Watcher->>FolderMgr: MoveWithKeywordAsync(folder, uid, Archive, $SafeUnsubscribed)
             FolderMgr->>IMAP: AddFlagsAsync(uid, $SafeUnsubscribed)
             FolderMgr->>IMAP: MoveToAsync(uid, @Safe-Unsubscribe/Archive)
         end
+        Watcher->>AuditGen: GenerateAuditMessage(context)
+        Watcher->>FolderMgr: AppendAuditMessageAsync(AuditFolder, auditMsg)
+        FolderMgr->>IMAP: AppendAsync(auditMsg, $AuditLogged)
+        FolderMgr->>IMAP: AddFlagsAsync(uid, $AuditLogged)
     end
 ```
 

@@ -2,6 +2,7 @@ using MailKit;
 using MailKit.Net.Imap;
 using MailStripper.Imap.Models;
 using Microsoft.Extensions.Logging;
+using MimeKit;
 
 namespace MailStripper.Imap.Services;
 
@@ -12,6 +13,7 @@ public interface IImapFolderManager
     Task<IMailFolder?> ResolveFolderAsync(IMailFolder currentFolder, string targetPath, CancellationToken ct = default);
     Task<bool> TryAddCustomKeywordAsync(IMailFolder folder, UniqueId uid, string keyword, CancellationToken ct = default);
     Task MoveWithKeywordAsync(IMailFolder sourceFolder, UniqueId uid, IMailFolder destinationFolder, string keyword, CancellationToken ct = default);
+    Task<UniqueId?> AppendAuditMessageAsync(IMailFolder auditFolder, MimeMessage auditMessage, CancellationToken ct = default);
 }
 
 public class ImapFolderManager : IImapFolderManager
@@ -128,6 +130,28 @@ public class ImapFolderManager : IImapFolderManager
         if (newUid.HasValue && destinationFolder.IsOpen)
         {
             await TryAddCustomKeywordAsync(destinationFolder, newUid.Value, keyword, ct);
+        }
+    }
+
+    public async Task<UniqueId?> AppendAuditMessageAsync(IMailFolder auditFolder, MimeMessage auditMessage, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(auditFolder);
+        ArgumentNullException.ThrowIfNull(auditMessage);
+
+        try
+        {
+            var request = new AppendRequest(auditMessage, MessageFlags.Seen, new HashSet<string> { ImapKeywords.AuditLogged });
+            var uid = await auditFolder.AppendAsync(request, ct);
+            _logger.LogInformation("Appended audit report to '{Folder}' (UID: {Uid}) with keyword {Keyword}.",
+                auditFolder.FullName, uid, ImapKeywords.AuditLogged);
+            return uid;
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested && (ex is NotSupportedException or ImapCommandException))
+        {
+            _logger.LogWarning(ex, "Failed to append with custom keyword to '{Folder}'. Retrying without custom keyword.",
+                auditFolder.FullName);
+            var fallbackRequest = new AppendRequest(auditMessage, MessageFlags.Seen);
+            return await auditFolder.AppendAsync(fallbackRequest, ct);
         }
     }
 }

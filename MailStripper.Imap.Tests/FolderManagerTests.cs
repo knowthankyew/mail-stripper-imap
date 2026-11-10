@@ -3,6 +3,7 @@ using MailKit.Net.Imap;
 using MailStripper.Imap.Models;
 using MailStripper.Imap.Services;
 using Microsoft.Extensions.Logging.Abstractions;
+using MimeKit;
 using NSubstitute;
 using NSubstitute.ExceptionExtensions;
 using Xunit;
@@ -141,5 +142,51 @@ public class FolderManagerTests
 
         // Verify move called
         await sourceFolder.Received(1).MoveToAsync(uid, destFolder, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task AppendAuditMessageAsync_AppendsMessageWithAuditLoggedKeyword()
+    {
+        var auditFolder = Substitute.For<IMailFolder>();
+        auditFolder.FullName.Returns("@Safe-Unsubscribe/Audit");
+        var auditMessage = new MimeMessage();
+        var expectedUid = new UniqueId(777);
+
+        auditFolder.AppendAsync(Arg.Any<IAppendRequest>(), Arg.Any<CancellationToken>())
+            .Returns(expectedUid);
+
+        var resultUid = await _manager.AppendAuditMessageAsync(auditFolder, auditMessage);
+
+        Assert.Equal(expectedUid, resultUid);
+        await auditFolder.Received(1).AppendAsync(
+            Arg.Is<IAppendRequest>(r => r.Flags.HasFlag(MessageFlags.Seen) && r.Keywords != null && r.Keywords.Contains(ImapKeywords.AuditLogged)),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task AppendAuditMessageAsync_RetriesWithoutKeyword_WhenServerRejectsKeywords()
+    {
+        var auditFolder = Substitute.For<IMailFolder>();
+        auditFolder.FullName.Returns("@Safe-Unsubscribe/Audit");
+        var auditMessage = new MimeMessage();
+        var fallbackUid = new UniqueId(888);
+
+        // First call with keywords throws NotSupportedException
+        auditFolder.AppendAsync(
+            Arg.Is<IAppendRequest>(r => r.Keywords != null && r.Keywords.Count > 0),
+            Arg.Any<CancellationToken>())
+            .Throws(new NotSupportedException("User flags not supported on APPEND."));
+
+        // Second fallback call succeeds
+        auditFolder.AppendAsync(
+            Arg.Is<IAppendRequest>(r => r.Keywords == null || r.Keywords.Count == 0),
+            Arg.Any<CancellationToken>())
+            .Returns(fallbackUid);
+
+        var resultUid = await _manager.AppendAuditMessageAsync(auditFolder, auditMessage);
+
+        Assert.Equal(fallbackUid, resultUid);
+        // Verify 2 calls were made (original with keywords, fallback without)
+        await auditFolder.Received(2).AppendAsync(Arg.Any<IAppendRequest>(), Arg.Any<CancellationToken>());
     }
 }
