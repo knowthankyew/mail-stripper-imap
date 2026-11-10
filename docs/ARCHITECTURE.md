@@ -1,5 +1,5 @@
 <!-- diagram-meta
-  last-validated: 2026-11-08
+  last-validated: 2026-11-10
   validated-commit: ebbf129
   covers: [MailStripper.Imap/**, MailStripper.Imap.Tests/**]
   generated-by: manual
@@ -32,6 +32,8 @@ flowchart TD
 
     subgraph DaemonCore["2. .NET 10 IMAP Daemon Core"]
         Watcher["🔄 IMAP IDLE Listener<br/><code>MailStripper.Imap/Services/ImapWatcherService.cs</code>"]
+        FolderMgr["📁 Folder & Flag Manager<br/><code>MailStripper.Imap/Services/ImapFolderManager.cs</code>"]
+        Backoff["⏱️ Exponential Backoff Policy<br/><code>MailStripper.Imap/Services/ExponentialBackoffPolicy.cs</code>"]
         MemBuffer["💾 Transient Memory Buffer<br/><i>System.IO.MemoryStream (Zero Disk)</i>"]
         MSClient["📡 mailStripper Client<br/><code>MailStripper.Imap/Services/MailStripperClient.cs</code>"]
         SterileExec["🔒 Sterile RFC 8058 Dispatcher<br/><code>MailStripper.Imap/Services/SterileUnsubscribeDispatcher.cs</code>"]
@@ -65,7 +67,7 @@ flowchart TD
     classDef esp fill:#78350f,stroke:#f59e0b,stroke-width:2px,color:#f8fafc;
 
     class IMAPServer,ArchiveBox,QuarantineBox,AuditBox remote;
-    class Watcher,MemBuffer,MSClient,SterileExec core;
+    class Watcher,FolderMgr,Backoff,MemBuffer,MSClient,SterileExec core;
     class MailStripper local;
     class ESPEndpoint esp;
 ```
@@ -78,9 +80,12 @@ sequenceDiagram
     actor User as Mail User
     participant IMAP as Remote IMAP Server
     participant Watcher as ImapWatcherService.cs
+    participant FolderMgr as ImapFolderManager.cs
     participant LocalMS as mailStripper (:5001)
     participant RemoteESP as Remote ESP Endpoint
 
+    Watcher->>FolderMgr: ProvisionHierarchyAsync(client, options)
+    FolderMgr->>IMAP: Ensure @Safe-Unsubscribe, Archive, Quarantine, Audit exist
     User->>IMAP: Drags newsletter into @Safe-Unsubscribe folder
     IMAP->>Watcher: IMAP IDLE CountChanged Notification
     Watcher->>IMAP: GetMessageAsync(uid) [Into MemoryStream]
@@ -89,16 +94,18 @@ sequenceDiagram
     LocalMS-->>Watcher: 200 OK (UnsubscribeForensicReport)
 
     alt Poison / Reconnaissance Trap Detected
-        Watcher->>IMAP: MoveToAsync(uid, @Safe-Unsubscribe/Quarantine)
-        Watcher->>IMAP: AddFlagsAsync(uid, $SuspiciousTrap)
+        Watcher->>FolderMgr: MoveWithKeywordAsync(folder, uid, Quarantine, $SuspiciousTrap)
+        FolderMgr->>IMAP: AddFlagsAsync(uid, $SuspiciousTrap)
+        FolderMgr->>IMAP: MoveToAsync(uid, @Safe-Unsubscribe/Quarantine)
     else Qualifying RFC 8058 Candidate (Safe)
         opt Operator Configured AutoExecuteSterileUnsubscribe = true
             Watcher->>RemoteESP: POST List-Unsubscribe=One-Click (UseCookies: false)
             RemoteESP-->>Watcher: HTTP 200 OK
             Watcher->>Watcher: Dispose response stream immediately
+            Watcher->>FolderMgr: MoveWithKeywordAsync(folder, uid, Archive, $SafeUnsubscribed)
+            FolderMgr->>IMAP: AddFlagsAsync(uid, $SafeUnsubscribed)
+            FolderMgr->>IMAP: MoveToAsync(uid, @Safe-Unsubscribe/Archive)
         end
-        Watcher->>IMAP: MoveToAsync(uid, @Safe-Unsubscribe/Archive)
-        Watcher->>IMAP: AddFlagsAsync(uid, $SafeUnsubscribed)
     end
 ```
 

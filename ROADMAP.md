@@ -22,8 +22,8 @@ Under portfolio governance boundaries:
 
 | Milestone | Target | Description | Status |
 |:----------|:------:|:------------|:------:|
-| **Milestone 1** | `v0.1.0` | **Scaffold & In-Memory Pipeline**: .NET 10 solution, CPM, MailKit integration, streaming client, sterile dispatcher, unit tests, claims linter | 🟡 **Scaffolded** |
-| **Milestone 2** | `v0.2.0` | **Folder Quarantine & Segregation**: Automatic creation of `@Safe-Unsubscribe` subfolders, flag tagging (`$SafeUnsubscribed`, `$SuspiciousTrap`), moving messages | 📋 **Planned** |
+| **Milestone 1** | `v0.1.0` | **Scaffold & In-Memory Pipeline**: .NET 10 solution, CPM, MailKit integration, streaming client, sterile dispatcher, unit tests, claims linter | 🟢 **Implemented** |
+| **Milestone 2** | `v0.2.0` | **Folder Quarantine & Segregation**: Automatic creation of `@Safe-Unsubscribe` subfolders, flag tagging (`$SafeUnsubscribed`, `$SuspiciousTrap`), moving messages | 🟢 **Implemented** |
 | **Milestone 3** | `v0.3.0` | **In-Mailbox Audit Reports**: Generates cryptographic audit summary MIME messages inside `@Safe-Unsubscribe/Audit` with forensic verdicts | 📋 **Planned** |
 | **Milestone 4** | `v0.4.0` | **Containerized Microservice & Systemd Unit**: Docker container definition, Linux systemd unit, healthcheck endpoint | 📋 **Planned** |
 
@@ -51,13 +51,13 @@ Under portfolio governance boundaries:
   - Automated architectural claims audit (`scripts/audit-claims.mjs`).
 
 ### Milestone 2: Folder Quarantine & Segregation (`v0.2.0`)
-- [ ] **Mailbox Provisioning**: Automatically check for and create `@Safe-Unsubscribe` folder hierarchy on startup if missing:
+- [x] **Mailbox Provisioning**: Automatically check for and create `@Safe-Unsubscribe` folder hierarchy on startup if missing:
   - `@Safe-Unsubscribe` (Monitored Inbox)
   - `@Safe-Unsubscribe/Archive` (Successfully processed)
   - `@Safe-Unsubscribe/Quarantine` (Phishing / Recon traps)
   - `@Safe-Unsubscribe/Audit` (Audit logs)
-- [ ] **Message Flag Tagging**: Apply IMAP custom keywords (`$SafeUnsubscribed`, `$SuspiciousTrap`, `$AuditLogged`).
-- [ ] **Batch Recovery**: Reconnect retry loop with exponential backoff on network drop.
+- [x] **Message Flag Tagging**: Apply IMAP custom keywords (`$SafeUnsubscribed`, `$SuspiciousTrap`, `$AuditLogged`).
+- [x] **Batch Recovery**: Reconnect retry loop with exponential backoff on network drop.
 
 ### Milestone 3: In-Mailbox Audit Reports (`v0.3.0`)
 - [ ] **MIME Audit Generator**: Synthesize a clean, defanged RFC 822 summary message containing:

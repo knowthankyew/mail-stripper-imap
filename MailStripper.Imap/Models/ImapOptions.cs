@@ -26,6 +26,9 @@ public class ImapOptions
     public bool AutoExecuteSterileUnsubscribe { get; set; } = false;
 
     public int MaxMessageByteSize { get; set; } = 15 * 1024 * 1024; // 15 MB cap
+
+    public int ReconnectInitialDelaySeconds { get; set; } = 2;
+    public int ReconnectMaxDelaySeconds { get; set; } = 300;
 }
 
 public record ForensicReportDto(
