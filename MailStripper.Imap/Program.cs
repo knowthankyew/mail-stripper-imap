@@ -9,6 +9,7 @@ using Microsoft.Extensions.Options;
 var builder = Host.CreateApplicationBuilder(args);
 
 builder.Services.AddOptions<ImapOptions>()
+    .Configure(opts => opts.ApplyEnvironmentFallbacks())
     .Bind(builder.Configuration.GetSection(ImapOptions.SectionName))
     .ValidateDataAnnotations()
     .ValidateOnStart();
@@ -24,6 +25,7 @@ builder.Services.AddSingleton<ISterileUnsubscribeDispatcher>(sp => new SterileUn
 builder.Services.AddSingleton<IImapClientFactory, DefaultImapClientFactory>();
 builder.Services.AddSingleton<IImapFolderManager, ImapFolderManager>();
 builder.Services.AddSingleton<IMimeAuditGenerator, MimeAuditGenerator>();
+builder.Services.AddSingleton<IImapHealthTracker, ImapHealthTracker>();
 builder.Services.AddTransient<IBackoffPolicy>(sp =>
 {
     var opts = sp.GetRequiredService<IOptions<ImapOptions>>().Value;
@@ -31,15 +33,17 @@ builder.Services.AddTransient<IBackoffPolicy>(sp =>
         TimeSpan.FromSeconds(opts.ReconnectInitialDelaySeconds),
         TimeSpan.FromSeconds(opts.ReconnectMaxDelaySeconds));
 });
+
+builder.Services.AddHostedService<HealthEndpointService>();
 builder.Services.AddHostedService<ImapWatcherService>();
 
 var host = builder.Build();
 
 var logger = host.Services.GetRequiredService<ILogger<Program>>();
 logger.LogInformation("=================================================");
-logger.LogInformation("MailStripper IMAP Protocol Watcher (v0.3.0)");
+logger.LogInformation("MailStripper IMAP Protocol Watcher (v0.4.0)");
 logger.LogInformation("100% Volatile RAM Ingestion · Zero Disk Writes");
-logger.LogInformation("In-Mailbox Audit Reports · Quarantine · Auto-Recovery");
+logger.LogInformation("Container Ready · Health Endpoints · In-Mailbox Audit Reports");
 logger.LogInformation("Pairs with local mailStripper (:5001)");
 logger.LogInformation("=================================================");
 

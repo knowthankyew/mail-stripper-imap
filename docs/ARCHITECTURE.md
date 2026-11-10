@@ -1,7 +1,7 @@
 <!-- diagram-meta
   last-validated: 2026-11-10
-  validated-commit: 8514fb1
-  covers: [MailStripper.Imap/**, MailStripper.Imap.Tests/**]
+  validated-commit: a37eba0
+  covers: [MailStripper.Imap/**, MailStripper.Imap.Tests/**, Dockerfile, docker-compose.yml, systemd/**]
   generated-by: manual
 -->
 
@@ -35,6 +35,8 @@ flowchart TD
         FolderMgr["📁 Folder & Flag Manager<br/><code>MailStripper.Imap/Services/ImapFolderManager.cs</code>"]
         Backoff["⏱️ Exponential Backoff Policy<br/><code>MailStripper.Imap/Services/ExponentialBackoffPolicy.cs</code>"]
         AuditGen["📑 MIME Audit Generator<br/><code>MailStripper.Imap/Services/MimeAuditGenerator.cs</code>"]
+        HealthTracker["🩺 Health State Tracker<br/><code>MailStripper.Imap/Services/ImapHealthTracker.cs</code>"]
+        HealthServer["🌐 Health Probe Endpoint (:8080)<br/><code>MailStripper.Imap/Services/HealthEndpointService.cs</code>"]
         MemBuffer["💾 Transient Memory Buffer<br/><i>System.IO.MemoryStream (Zero Disk)</i>"]
         MSClient["📡 mailStripper Client<br/><code>MailStripper.Imap/Services/MailStripperClient.cs</code>"]
         SterileExec["🔒 Sterile RFC 8058 Dispatcher<br/><code>MailStripper.Imap/Services/SterileUnsubscribeDispatcher.cs</code>"]
@@ -48,8 +50,15 @@ flowchart TD
         ESPEndpoint["🌐 Authenticated HTTPS Target<br/><i>POST List-Unsubscribe=One-Click</i>"]
     end
 
+    subgraph Orchestrator["5. Container / Host Orchestrator"]
+        Probes["🔍 Health Probes<br/><i>GET /healthz, /readyz, /livez</i>"]
+    end
+
     IMAPServer -->|"IMAP IDLE Push"| Watcher
     Watcher -->|"Fetch Message Stream"| MemBuffer
+    Watcher -.->|"Connection State & Metrics"| HealthTracker
+    HealthServer -->|"Query Live State"| HealthTracker
+    Probes -->|"HTTP Probes (:8080)"| HealthServer
     MemBuffer -->|"POST raw bytes (multipart)"| MSClient
     MSClient -->|"Stream to :5001"| MailStripper
     MailStripper -->> MSClient: Return Forensic Report
@@ -66,11 +75,13 @@ flowchart TD
     classDef core fill:#1e293b,stroke:#38bdf8,stroke-width:2px,color:#f8fafc;
     classDef local fill:#14532d,stroke:#22c55e,stroke-width:2px,color:#f8fafc;
     classDef esp fill:#78350f,stroke:#f59e0b,stroke-width:2px,color:#f8fafc;
+    classDef orch fill:#312e81,stroke:#818cf8,stroke-width:1px,color:#f8fafc;
 
     class IMAPServer,ArchiveBox,QuarantineBox,AuditBox remote;
-    class Watcher,FolderMgr,Backoff,AuditGen,MemBuffer,MSClient,SterileExec core;
+    class Watcher,FolderMgr,Backoff,AuditGen,HealthTracker,HealthServer,MemBuffer,MSClient,SterileExec core;
     class MailStripper local;
     class ESPEndpoint esp;
+    class Probes orch;
 ```
 
 ### B. Message Ingestion & Quarantine Sequence
@@ -122,6 +133,20 @@ sequenceDiagram
 
 > **Operator Dry-Run Mode**: When `AutoExecuteSterileUnsubscribe` is `false` (the default setting), valid candidates remain in `@Safe-Unsubscribe` for manual operator review without executing HTTP requests or moving to Archive.
 
+### C. Health Probing & Lifecycle State Model
+
+```mermaid
+stateDiagram-v2
+    [*] --> Starting: Service Initialized
+    Starting --> Healthy: IMAP Connected & Folder Opened
+    Healthy --> Healthy: IDLE Notification & Message Processed
+    Healthy --> Unhealthy: Socket Drop / Exception Encountered
+    Unhealthy --> Unhealthy: Backoff Delay & Reconnect Retry
+    Unhealthy --> Healthy: Reconnection Successful
+    Healthy --> [*]: Graceful Shutdown
+    Unhealthy --> [*]: Termination
+```
+
 ---
 
 ## 3. Core Architectural Invariants
@@ -129,7 +154,8 @@ sequenceDiagram
 | # | Invariant | Enforcement & Guarantee |
 |:--|:----------|:------------------------|
 | 1 | **100% Volatile RAM Ingestion** | All message parsing and streaming resides exclusively in `MemoryStream`. Zero bytes are ever written to disk or `/tmp`. |
-| 2 | **Central Package Management (CPM)** | 100% of NuGet dependencies pinned in `Directory.Packages.props` with MSBuild fail-closed audit (`NU1903/NU1904`). |
+| 2 | **Central Package Management (CPM)** | 100% of NuGet dependencies pinned in `Directory.Packages.props` with MSBuild fail-closed audit (`NU1901-NU1904`). |
 | 3 | **Sterile RFC 8058 HTTP Execution** | Enforces `UseCookies = false`, `AllowAutoRedirect = false`, `https://` only, and immediate response body disposal. |
 | 4 | **Size Budgeting** | Bounded at 15 MB per message to prevent heap exhaustion during batch sweeps. |
 | 5 | **Strict Isolation** | Operates strictly on designated IMAP quarantine folders without modifying user's primary inbox without configuration. |
+| 6 | **Unprivileged Sandbox Execution** | Container executes under non-root unprivileged credentials (`USER $APP_UID`), and systemd unit drops capabilities with strict filesystem sandboxing (`ProtectSystem=strict`, `NoNewPrivileges=true`, `PrivateTmp=true`). |

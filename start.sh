@@ -12,7 +12,7 @@ if command -v node >/dev/null 2>&1; then
 fi
 
 echo "2. Building solution and running tests..."
-dotnet test mail-stripper-imap.sln
+dotnet test mail-stripper-imap.slnx
 
 echo "3. Starting daemon..."
 dotnet run --project MailStripper.Imap/MailStripper.Imap.csproj

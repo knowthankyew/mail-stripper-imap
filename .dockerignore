@@ -1,0 +1,9 @@
+**/bin/
+**/obj/
+.git
+.github
+*.log
+.DS_Store
+MailStripper.Imap.Tests/
+docs/
+scripts/

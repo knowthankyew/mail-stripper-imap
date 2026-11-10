@@ -25,7 +25,7 @@ Under portfolio governance boundaries:
 | **Milestone 1** | `v0.1.0` | **Scaffold & In-Memory Pipeline**: .NET 10 solution, CPM, MailKit integration, streaming client, sterile dispatcher, unit tests, claims linter | 🟢 **Implemented** |
 | **Milestone 2** | `v0.2.0` | **Folder Quarantine & Segregation**: Automatic creation of `@Safe-Unsubscribe` subfolders, flag tagging (`$SafeUnsubscribed`, `$SuspiciousTrap`), moving messages | 🟢 **Implemented** |
 | **Milestone 3** | `v0.3.0` | **In-Mailbox Audit Reports**: Generates cryptographic audit summary MIME messages inside `@Safe-Unsubscribe/Audit` with forensic verdicts | 🟢 **Implemented** |
-| **Milestone 4** | `v0.4.0` | **Containerized Microservice & Systemd Unit**: Docker container definition, Linux systemd unit, healthcheck endpoint | 📋 **Planned** |
+| **Milestone 4** | `v0.4.0` | **Containerized Microservice & Systemd Unit**: Docker container definition, Linux systemd unit, healthcheck endpoint | 🟢 **Implemented** |
 
 ---
 
@@ -69,9 +69,11 @@ Under portfolio governance boundaries:
 - [x] **Append to Audit Mailbox**: Append the generated audit MIME message directly to `@Safe-Unsubscribe/Audit`.
 
 ### Milestone 4: Production Deployment & Containerization (`v0.4.0`)
-- [ ] **Multi-Stage Dockerfile**: Minimal Chiseled Ubuntu / Alpine container running non-root daemon.
-- [ ] **Environment Variable Mapping**: Full configuration via `IMAP__HOST`, `IMAP__USERNAME`, `IMAP__PASSWORD`, etc.
-- [ ] **Health Monitoring**: Lightweight HTTP endpoint `/healthz` for container orchestrator probes.
+- [x] **Multi-Stage Dockerfile**: Minimal hardened Alpine container running non-root daemon (`USER $APP_UID`) with container healthcheck.
+- [x] **Environment Variable Mapping**: Full hierarchical (.NET `IMAP__*`) and flat fallback (`IMAP_*`) configuration support for all options.
+- [x] **Health Monitoring**: Lightweight embedded HTTP healthcheck listener (`/healthz`, `/readyz`, `/livez`) on port 8080.
+- [x] **Linux Systemd Unit**: Sandboxed systemd service definition (`mail-stripper-imap.service`) with `ProtectSystem=strict`, `NoNewPrivileges=true`, `PrivateTmp=true`.
+- [x] **Docker Compose Orchestration**: Service composition pairing `mail-stripper-imap` with the `mail-stripper` ingestion plane.
 
 ---
 

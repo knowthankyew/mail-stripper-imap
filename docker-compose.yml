@@ -1,0 +1,35 @@
+services:
+  mail-stripper:
+    image: knowthankyew/mail-stripper:latest
+    container_name: mail-stripper
+    ports:
+      - "127.0.0.1:5001:5001"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+    restart: unless-stopped
+
+  mail-stripper-imap:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mail-stripper-imap
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      - IMAP__HOST=${IMAP_HOST:-127.0.0.1}
+      - IMAP__PORT=${IMAP_PORT:-993}
+      - IMAP__USE_SSL=${IMAP_USE_SSL:-true}
+      - IMAP__USERNAME=${IMAP_USERNAME:-}
+      - IMAP__PASSWORD=${IMAP_PASSWORD:-}
+      - IMAP__MONITORED_FOLDER=${IMAP_MONITORED_FOLDER:-@Safe-Unsubscribe}
+      - IMAP__ARCHIVE_FOLDER=${IMAP_ARCHIVE_FOLDER:-@Safe-Unsubscribe/Archive}
+      - IMAP__QUARANTINE_FOLDER=${IMAP_QUARANTINE_FOLDER:-@Safe-Unsubscribe/Quarantine}
+      - IMAP__AUDIT_FOLDER=${IMAP_AUDIT_FOLDER:-@Safe-Unsubscribe/Audit}
+      - IMAP__MAIL_STRIPPER_URL=http://mail-stripper:5001
+      - IMAP__TRUSTED_AUTHSERV_ID=${IMAP_TRUSTED_AUTHSERV_ID:-}
+      - IMAP__AUTO_EXECUTE_STERILE_UNSUBSCRIBE=${IMAP_AUTO_EXECUTE_STERILE_UNSUBSCRIBE:-false}
+      - IMAP__HEALTH_CHECK_PORT=8080
+      - IMAP__HEALTH_CHECK_HOST=*
+    depends_on:
+      - mail-stripper
+    restart: unless-stopped

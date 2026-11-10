@@ -322,6 +322,8 @@ public class ImapWatcherServiceTests
         clientFactory.CreateClient().Returns(client1, client2);
         backoff.NextDelay().Returns(TimeSpan.FromMilliseconds(5));
 
+        var healthTracker = Substitute.For<IImapHealthTracker>();
+
         var options = Options.Create(new ImapOptions());
         var service = new TestableImapWatcherService(
             options,
@@ -330,7 +332,8 @@ public class ImapWatcherServiceTests
             folderManager,
             clientFactory,
             NullLogger<ImapWatcherService>.Instance,
-            backoff);
+            backoff,
+            healthTracker);
 
         await service.RunAsync(cts.Token).WaitAsync(TimeSpan.FromSeconds(10));
 
@@ -339,6 +342,10 @@ public class ImapWatcherServiceTests
 
         // Assert: NextDelay was called on backoff for the failure
         backoff.Received(1).NextDelay();
+
+        // Assert: Health tracker recorded disconnection on failure and connection on recovery
+        healthTracker.Received().ReportDisconnected(Arg.Is<string>(s => s.Contains("IOException")));
+        healthTracker.Received().ReportConnected();
     }
 
     [Fact]
@@ -451,6 +458,44 @@ public class ImapWatcherServiceTests
             Arg.Any<CancellationToken>());
     }
 
+    [Fact]
+    public async Task ProcessSingleMessageAsync_UpdatesHealthTracker()
+    {
+        var uid = new UniqueId(999);
+        var folder = Substitute.For<IMailFolder>();
+        folder.GetMessageAsync(uid, Arg.Any<CancellationToken>()).Returns(CreateDummyMessage());
+
+        var mailStripperClient = Substitute.For<IMailStripperClient>();
+        var report = CreateForensicReport("OneClickPostCandidate");
+        mailStripperClient.AnalyzeMessageStreamAsync(
+            Arg.Any<Stream>(),
+            Arg.Any<string>(),
+            Arg.Any<string?>(),
+            Arg.Any<CancellationToken>())
+            .Returns(new StripFileResponse("id-health", "Title", "Summary", report));
+
+        var dispatcher = Substitute.For<ISterileUnsubscribeDispatcher>();
+        var folderManager = Substitute.For<IImapFolderManager>();
+        var clientFactory = Substitute.For<IImapClientFactory>();
+        var auditGenerator = Substitute.For<IMimeAuditGenerator>();
+        var healthTracker = Substitute.For<IImapHealthTracker>();
+
+        var options = Options.Create(new ImapOptions { AutoExecuteSterileUnsubscribe = false });
+        var service = new ImapWatcherService(
+            options,
+            mailStripperClient,
+            dispatcher,
+            folderManager,
+            clientFactory,
+            auditGenerator,
+            NullLogger<ImapWatcherService>.Instance,
+            healthTracker: healthTracker);
+
+        await service.ProcessSingleMessageAsync(folder, uid, CancellationToken.None);
+
+        healthTracker.Received(1).ReportMessageProcessed();
+    }
+
     private class TestableImapWatcherService : ImapWatcherService
     {
         public TestableImapWatcherService(
@@ -460,8 +505,9 @@ public class ImapWatcherServiceTests
             IImapFolderManager folderManager,
             IImapClientFactory clientFactory,
             Microsoft.Extensions.Logging.ILogger<ImapWatcherService> logger,
-            IBackoffPolicy? backoffPolicy = null)
-            : base(options, mailStripperClient, dispatcher, folderManager, clientFactory, logger, backoffPolicy)
+            IBackoffPolicy? backoffPolicy = null,
+            IImapHealthTracker? healthTracker = null)
+            : base(options, mailStripperClient, dispatcher, folderManager, clientFactory, new MimeAuditGenerator(), logger, backoffPolicy, healthTracker)
         {
         }
 

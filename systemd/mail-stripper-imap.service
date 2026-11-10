@@ -1,0 +1,34 @@
+[Unit]
+Description=MailStripper IMAP Protocol Watcher Daemon
+Documentation=https://github.com/knowthankyew/mail-stripper-imap
+After=network.target network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=mailstripper
+Group=mailstripper
+WorkingDirectory=/opt/mail-stripper-imap
+ExecStart=/usr/bin/dotnet /opt/mail-stripper-imap/MailStripper.Imap.dll
+Restart=always
+RestartSec=10s
+
+# Environment configuration
+EnvironmentFile=-/etc/mail-stripper-imap/env
+
+# Hardening and Sandboxing Directives
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+ProtectKernelModules=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictRealtime=true
+LockPersonality=true
+CapabilityBoundingSet=
+
+[Install]
+WantedBy=multi-user.target

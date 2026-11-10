@@ -17,6 +17,7 @@ public class ImapWatcherService : BackgroundService
     private readonly IImapClientFactory _clientFactory;
     private readonly IMimeAuditGenerator _auditGenerator;
     private readonly IBackoffPolicy? _backoffPolicy;
+    private readonly IImapHealthTracker? _healthTracker;
     private readonly ILogger<ImapWatcherService> _logger;
 
     public ImapWatcherService(
@@ -27,7 +28,8 @@ public class ImapWatcherService : BackgroundService
         IImapClientFactory clientFactory,
         IMimeAuditGenerator auditGenerator,
         ILogger<ImapWatcherService> logger,
-        IBackoffPolicy? backoffPolicy = null)
+        IBackoffPolicy? backoffPolicy = null,
+        IImapHealthTracker? healthTracker = null)
     {
         _options = options.Value;
         _mailStripperClient = mailStripperClient;
@@ -37,6 +39,7 @@ public class ImapWatcherService : BackgroundService
         _auditGenerator = auditGenerator;
         _logger = logger;
         _backoffPolicy = backoffPolicy;
+        _healthTracker = healthTracker;
     }
 
     public ImapWatcherService(
@@ -46,8 +49,9 @@ public class ImapWatcherService : BackgroundService
         IImapFolderManager folderManager,
         IImapClientFactory clientFactory,
         ILogger<ImapWatcherService> logger,
-        IBackoffPolicy? backoffPolicy = null)
-        : this(options, mailStripperClient, dispatcher, folderManager, clientFactory, new MimeAuditGenerator(), logger, backoffPolicy)
+        IBackoffPolicy? backoffPolicy = null,
+        IImapHealthTracker? healthTracker = null)
+        : this(options, mailStripperClient, dispatcher, folderManager, clientFactory, new MimeAuditGenerator(), logger, backoffPolicy, healthTracker)
     {
     }
 
@@ -81,6 +85,7 @@ public class ImapWatcherService : BackgroundService
 
                 _logger.LogInformation("Connected and watching '{Folder}' (Total Messages: {Count})",
                     folder.FullName, folder.Count);
+                _healthTracker?.ReportConnected();
 
                 // Initial sweep of pending messages
                 var uids = await folder.SearchAsync(MailKit.Search.SearchQuery.All, stoppingToken);
@@ -139,13 +144,16 @@ public class ImapWatcherService : BackgroundService
                 {
                     await client.DisconnectAsync(true, stoppingToken);
                 }
+                _healthTracker?.ReportDisconnected("Session disconnected");
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
+                _healthTracker?.ReportDisconnected("Service stopped");
                 break;
             }
             catch (Exception ex)
             {
+                _healthTracker?.ReportDisconnected($"Connection error ({ex.GetType().Name})");
                 var delay = backoff.NextDelay();
                 _logger.LogError(ex, "IMAP Watcher encountered connection error (attempt {Attempt}). Retrying in {DelaySeconds:F1}s...",
                     backoff.CurrentAttempt, delay.TotalSeconds);
@@ -160,6 +168,7 @@ public class ImapWatcherService : BackgroundService
             }
         }
 
+        _healthTracker?.ReportDisconnected("Service stopped gracefully");
         _logger.LogInformation("MailStripper IMAP Watcher stopped gracefully.");
     }
 
@@ -243,6 +252,7 @@ public class ImapWatcherService : BackgroundService
             }
 
             await EmitAuditReportAsync(folder, uid, mimeMessage, rawBytes, unsub, null, ct);
+            _healthTracker?.ReportMessageProcessed();
             return;
         }
 
@@ -284,6 +294,7 @@ public class ImapWatcherService : BackgroundService
 
         // 4. In-Mailbox Audit Report Generation & Append (Milestone 3)
         await EmitAuditReportAsync(folder, uid, mimeMessage, rawBytes, unsub, dispatchResult, ct);
+        _healthTracker?.ReportMessageProcessed();
     }
 
     private async Task EmitAuditReportAsync(
