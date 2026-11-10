@@ -8,8 +8,11 @@ using Microsoft.Extensions.Options;
 
 var builder = Host.CreateApplicationBuilder(args);
 
-builder.Services.Configure<ImapOptions>(
-    builder.Configuration.GetSection(ImapOptions.SectionName));
+builder.Services.AddOptions<ImapOptions>()
+    .Bind(builder.Configuration.GetSection(ImapOptions.SectionName))
+    .Validate(opts => opts.ReconnectInitialDelaySeconds >= 1, "ReconnectInitialDelaySeconds must be at least 1 second.")
+    .Validate(opts => opts.ReconnectMaxDelaySeconds >= opts.ReconnectInitialDelaySeconds, "ReconnectMaxDelaySeconds must be greater than or equal to ReconnectInitialDelaySeconds.")
+    .ValidateOnStart();
 
 builder.Services.AddHttpClient<IMailStripperClient, MailStripperClient>((sp, client) =>
 {
@@ -21,7 +24,13 @@ builder.Services.AddHttpClient<IMailStripperClient, MailStripperClient>((sp, cli
 builder.Services.AddSingleton<ISterileUnsubscribeDispatcher>(sp => new SterileUnsubscribeDispatcher());
 builder.Services.AddSingleton<IImapClientFactory, DefaultImapClientFactory>();
 builder.Services.AddSingleton<IImapFolderManager, ImapFolderManager>();
-builder.Services.AddTransient<IBackoffPolicy, ExponentialBackoffPolicy>();
+builder.Services.AddTransient<IBackoffPolicy>(sp =>
+{
+    var opts = sp.GetRequiredService<IOptions<ImapOptions>>().Value;
+    return new ExponentialBackoffPolicy(
+        TimeSpan.FromSeconds(opts.ReconnectInitialDelaySeconds),
+        TimeSpan.FromSeconds(opts.ReconnectMaxDelaySeconds));
+});
 builder.Services.AddHostedService<ImapWatcherService>();
 
 var host = builder.Build();

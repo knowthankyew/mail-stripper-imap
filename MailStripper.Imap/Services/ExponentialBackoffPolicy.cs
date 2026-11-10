@@ -33,12 +33,11 @@ public class ExponentialBackoffPolicy : IBackoffPolicy
     public TimeSpan NextDelay()
     {
         double delayMs = _initialDelay.TotalMilliseconds * Math.Pow(_multiplier, _attempt);
-        delayMs = Math.Min(delayMs, _maxDelay.TotalMilliseconds);
         _attempt++;
 
         // Add 0-25% randomized jitter to mitigate thundering herd
         double jitter = delayMs * 0.25 * _random.NextDouble();
-        return TimeSpan.FromMilliseconds(delayMs + jitter);
+        return TimeSpan.FromMilliseconds(Math.Min(delayMs + jitter, _maxDelay.TotalMilliseconds));
     }
 
     public void Reset()

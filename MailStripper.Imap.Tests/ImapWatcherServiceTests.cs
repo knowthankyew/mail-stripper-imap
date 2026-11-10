@@ -1,11 +1,13 @@
 using System.Text;
 using MailKit;
+using MailKit.Net.Imap;
 using MailStripper.Imap.Models;
 using MailStripper.Imap.Services;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using MimeKit;
 using NSubstitute;
+using NSubstitute.ExceptionExtensions;
 using Xunit;
 
 namespace MailStripper.Imap.Tests;
@@ -286,5 +288,73 @@ public class ImapWatcherServiceTests
             Arg.Any<string>(),
             Arg.Any<string?>(),
             Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ReconnectionPath_CallsNextDelayAndRetries()
+    {
+        var client1 = Substitute.For<IImapClient>();
+        var client2 = Substitute.For<IImapClient>();
+        var mockFolder = Substitute.For<IMailFolder>();
+        var clientFactory = Substitute.For<IImapClientFactory>();
+        var backoff = Substitute.For<IBackoffPolicy>();
+        var folderManager = Substitute.For<IImapFolderManager>();
+        var mailStripperClient = Substitute.For<IMailStripperClient>();
+        var dispatcher = Substitute.For<ISterileUnsubscribeDispatcher>();
+
+        using var cts = new CancellationTokenSource();
+
+        // Client 1 fails to connect
+        client1.ConnectAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<bool>(), Arg.Any<CancellationToken>())
+            .Throws(new System.IO.IOException("Simulated connection dropped"));
+
+        // Client 2 connects, opens folder, sweeps, and we cancel cts to stop the loop
+        client2.ConnectAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<bool>(), Arg.Any<CancellationToken>())
+            .Returns(Task.CompletedTask);
+        client2.GetFolderAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(mockFolder);
+        mockFolder.SearchAsync(Arg.Any<MailKit.Search.SearchQuery>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult((System.Collections.Generic.IList<UniqueId>)new System.Collections.Generic.List<UniqueId>()));
+        mockFolder.OpenAsync(FolderAccess.ReadWrite, Arg.Any<CancellationToken>())
+            .Returns(FolderAccess.ReadWrite)
+            .AndDoes(_ => cts.Cancel());
+
+        clientFactory.CreateClient().Returns(client1, client2);
+        backoff.NextDelay().Returns(TimeSpan.FromMilliseconds(5));
+
+        var options = Options.Create(new ImapOptions());
+        var service = new TestableImapWatcherService(
+            options,
+            mailStripperClient,
+            dispatcher,
+            folderManager,
+            clientFactory,
+            NullLogger<ImapWatcherService>.Instance,
+            backoff);
+
+        await service.RunAsync(cts.Token);
+
+        // Assert: Factory created client 1 (failed) and client 2 (recovered)
+        clientFactory.Received(2).CreateClient();
+
+        // Assert: NextDelay was called on backoff for the failure
+        backoff.Received(1).NextDelay();
+    }
+
+    private class TestableImapWatcherService : ImapWatcherService
+    {
+        public TestableImapWatcherService(
+            IOptions<ImapOptions> options,
+            IMailStripperClient mailStripperClient,
+            ISterileUnsubscribeDispatcher dispatcher,
+            IImapFolderManager folderManager,
+            IImapClientFactory clientFactory,
+            Microsoft.Extensions.Logging.ILogger<ImapWatcherService> logger,
+            IBackoffPolicy? backoffPolicy = null)
+            : base(options, mailStripperClient, dispatcher, folderManager, clientFactory, logger, backoffPolicy)
+        {
+        }
+
+        public Task RunAsync(CancellationToken ct) => ExecuteAsync(ct);
     }
 }

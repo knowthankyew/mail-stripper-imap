@@ -72,7 +72,7 @@ public class ImapWatcherService : BackgroundService
                 foreach (var uid in uids)
                 {
                     if (stoppingToken.IsCancellationRequested) break;
-                    await ProcessSingleMessageAsync(folder, uid, stoppingToken);
+                    await TryProcessMessageAsync(folder, uid, stoppingToken);
                 }
 
                 // Successful connect, provision, and initial sweep: reset backoff
@@ -110,7 +110,7 @@ public class ImapWatcherService : BackgroundService
                     foreach (var uid in newUids)
                     {
                         if (stoppingToken.IsCancellationRequested) break;
-                        await ProcessSingleMessageAsync(folder, uid, stoppingToken);
+                        await TryProcessMessageAsync(folder, uid, stoppingToken);
                     }
                 }
 
@@ -140,6 +140,21 @@ public class ImapWatcherService : BackgroundService
         }
 
         _logger.LogInformation("MailStripper IMAP Watcher stopped gracefully.");
+    }
+
+    private async Task TryProcessMessageAsync(IMailFolder folder, UniqueId uid, CancellationToken ct)
+    {
+        try
+        {
+            await ProcessSingleMessageAsync(folder, uid, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException
+                                   and not IOException
+                                   and not ImapProtocolException
+                                   and not ServiceNotConnectedException)
+        {
+            _logger.LogError(ex, "Message {Uid} failed processing. Skipping to next message.", uid);
+        }
     }
 
     public async Task ProcessSingleMessageAsync(IMailFolder folder, UniqueId uid, CancellationToken ct)

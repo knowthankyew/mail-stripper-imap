@@ -78,7 +78,7 @@ public class ImapFolderManager : IImapFolderManager
     private async Task<IMailFolder> EnsureFolderFromRootAsync(IMailFolder root, string folderPath, CancellationToken ct)
     {
         var sep = root.DirectorySeparator;
-        var parts = folderPath.Split(new[] { '/', '.', sep }, StringSplitOptions.RemoveEmptyEntries);
+        var parts = folderPath.Split(new[] { '/', sep }, StringSplitOptions.RemoveEmptyEntries);
 
         IMailFolder current = root;
         foreach (var part in parts)
@@ -107,7 +107,7 @@ public class ImapFolderManager : IImapFolderManager
             _logger.LogDebug("Tagged message {Uid} in '{Folder}' with keyword {Keyword}.", uid, folder.FullName, keyword);
             return true;
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogWarning(ex, "Could not apply custom keyword {Keyword} to message {Uid} in '{Folder}'. Server may not support user-defined flags.",
                 keyword, uid, folder.FullName);

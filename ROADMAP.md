@@ -56,7 +56,8 @@ Under portfolio governance boundaries:
   - `@Safe-Unsubscribe/Archive` (Successfully processed)
   - `@Safe-Unsubscribe/Quarantine` (Phishing / Recon traps)
   - `@Safe-Unsubscribe/Audit` (Audit logs)
-- [x] **Message Flag Tagging**: Apply IMAP custom keywords (`$SafeUnsubscribed`, `$SuspiciousTrap`, `$AuditLogged`).
+- [x] **Message Flag Tagging**: Apply IMAP custom keywords (`$SafeUnsubscribed`, `$SuspiciousTrap`).
+- [ ] **Audit Flag**: Apply `$AuditLogged` after the audit report is appended (Milestone 3).
 - [x] **Batch Recovery**: Reconnect retry loop with exponential backoff on network drop.
 
 ### Milestone 3: In-Mailbox Audit Reports (`v0.3.0`)

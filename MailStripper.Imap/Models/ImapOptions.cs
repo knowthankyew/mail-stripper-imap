@@ -1,6 +1,8 @@
+using System.ComponentModel.DataAnnotations;
+
 namespace MailStripper.Imap.Models;
 
-public class ImapOptions
+public class ImapOptions : IValidatableObject
 {
     public const string SectionName = "Imap";
 
@@ -27,8 +29,21 @@ public class ImapOptions
 
     public int MaxMessageByteSize { get; set; } = 15 * 1024 * 1024; // 15 MB cap
 
+    [Range(1, 3600, ErrorMessage = "ReconnectInitialDelaySeconds must be between 1 and 3600 seconds.")]
     public int ReconnectInitialDelaySeconds { get; set; } = 2;
+
+    [Range(1, 86400, ErrorMessage = "ReconnectMaxDelaySeconds must be between 1 and 86400 seconds.")]
     public int ReconnectMaxDelaySeconds { get; set; } = 300;
+
+    public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
+    {
+        if (ReconnectMaxDelaySeconds < ReconnectInitialDelaySeconds)
+        {
+            yield return new ValidationResult(
+                "ReconnectMaxDelaySeconds must be greater than or equal to ReconnectInitialDelaySeconds.",
+                new[] { nameof(ReconnectMaxDelaySeconds) });
+        }
+    }
 }
 
 public record ForensicReportDto(
