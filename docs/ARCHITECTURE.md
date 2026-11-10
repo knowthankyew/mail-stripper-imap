@@ -1,6 +1,6 @@
 <!-- diagram-meta
   last-validated: 2026-11-10
-  validated-commit: e12647b
+  validated-commit: 8e64e61
   covers: [MailStripper.Imap/**, MailStripper.Imap.Tests/**, Dockerfile, docker-compose.yml, systemd/**]
   generated-by: manual
 -->
