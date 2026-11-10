@@ -3,25 +3,100 @@
 > Protocol-Level **IMAP IDLE Quarantine Watcher**, Automated Folder Segregator & Sterile Opt-Out Daemon.
 
 Built on Jeffrey Stedfast's industry-standard [`MailKit`](https://github.com/jstedfast/MailKit) library.  
-Companion client to [`knowthankyew/mail-stripper`](https://github.com/knowthankyew/mail-stripper).
+Companion daemon to [`knowthankyew/mail-stripper`](https://github.com/knowthankyew/mail-stripper).
 
 ---
 
-## 🎯 What It Does
+## 📺 Interactive Demonstration
 
-1. 🔄 **Automated Mailbox Watching**: Listens on a dedicated IMAP folder (e.g. `@Safe-Unsubscribe` or `INBOX`) using real-time IMAP IDLE push notifications with exponential backoff auto-recovery.
-2. 📁 **Automatic Mailbox Provisioning**: Checks for and auto-provisions the required folder hierarchy on startup (`@Safe-Unsubscribe`, `Archive`, `Quarantine`, `Audit`).
-3. 💾 **100% Volatile RAM Streaming**: Downloads new messages directly into transient memory (`MemoryStream`). Zero bytes are ever written to disk or temporary files.
-4. 🔬 **Deep Forensic Analysis**: Streams raw bytes to your local `mailStripper` engine (`http://localhost:5001/api/strip/file`) for RFC 8058, RFC 2369, DKIM, and receiving MX forensics.
-5. 🚨 **Threat Segregation & Flagging**: Instantly tags messages with `$SuspiciousTrap` and moves deceptive phishing lures, punycode traps, and unaligned reconnaissance links to `@Safe-Unsubscribe/Quarantine`.
-6. 🔒 **Optional Sterile Automated Opt-Out**: When explicitly enabled by the operator (`AutoExecuteSterileUnsubscribe: true`), fires an isolated zero-cookie RFC 8058 HTTP POST for verified newsletters, tags `$SafeUnsubscribed`, and moves them to `@Safe-Unsubscribe/Archive`.
-7. 📑 **In-Mailbox Forensic Audit Reports**: Synthesizes cryptographic RFC 822 MIME summary reports into `@Safe-Unsubscribe/Audit` with defanged URLs, SHA-256 original message digest, MX verification, and sterile HTTP dispatch status, tagged with `$AuditLogged`.
-8. 🩺 **Embedded Health Probes**: Lightweight HTTP listener providing `/healthz`, `/readyz`, and `/livez` endpoints reporting live connection state and metrics for container orchestrators.
-9. 🛡️ **Supply Chain Assurance**: Central Package Management (CPM) with MSBuild fail-closed vulnerability gating (`NU1903/NU1904`).
+Watch the complete automated IMAP IDLE quarantine watcher workflow in action—from real-time mailbox push notifications and volatile RAM ingestion to threat quarantine, sterile opt-out execution, and cryptographic audit reporting:
+
+![mail-stripper-imap Protocol Quarantine Watcher & Sterile Opt-Out Daemon](demo.gif)
+
+> 📹 **High-Definition Recording**: [`demo.mp4`](demo.mp4) *(Playwright automated run, 1366x860)*  
+> 🔄 **Automated Reproduction**: To re-record this demonstration at any time, run: `./scripts/record-demo.sh`
 
 ---
 
-## 🚀 Quickstart (Zero-Coder "Just Works")
+## 🎯 The Real-World Problem: Why "Unsubscribe" Is Dangerous
+
+Modern email users and corporate inboxes receive an overwhelming volume of automated newsletters, cold sales sequences, and deceptive phishing lures. When attempting to unsubscribe through traditional means, users face critical security and privacy hazards:
+
+1. **Active Reconnaissance Traps & Victim Confirmation**:  
+   Malicious senders deliberately embed unauthenticated tracking beacons and deceptive unsubscribe links. When a user clicks these links or a naive script triggers them, the attacker receives confirmation that the email address is actively monitored by a human target. This instantly escalates the victim's threat profile, resulting in intensified phishing campaigns and credential harvesting.
+
+2. **Ambient Cookie Leaks & Session Exposure**:  
+   Standard web browsers and generic HTTP libraries automatically transmit ambient authentication cookies, follow cross-origin redirects, and execute remote JavaScript. A deceptive opt-out link can exploit open redirects to harvest session identifiers, leak corporate IP addresses, or trigger tracking pixels.
+
+3. **Manual Overhead & Spam Filter Inefficiency**:  
+   Marking messages as spam does not revoke marketing lists or unsubscribe users; it merely pollutes local filter heuristics. Manually visiting dozens of unverified unsubscribe pages each week consumes hours and continually exposes users to malicious web content.
+
+---
+
+## 🛡️ The Real-World Solution: Autonomous Protocol-Level Guardian
+
+`mail-stripper-imap` provides an autonomous, headless protocol-level solution:
+
+```
+┌─────────────────┐       IMAP IDLE Push       ┌────────────────────────┐
+│  Remote Mailbox │ ─────────────────────────> │   mail-stripper-imap   │
+│ (e.g. Fastmail, │                            │ (Headless .NET Daemon) │
+│  Gmail, Proton) │ <───────────────────────── │                        │
+└─────────────────┘      Keyword Tagging &     └───────────┬────────────┘
+                         Folder Segregation                │
+                                                           │ Volatile RAM Stream
+                                                           │ (Zero Disk Writes)
+                                                           ▼
+                                               ┌────────────────────────┐
+                                               │   Local mailStripper   │
+                                               │   Forensic Analyzer    │
+                                               │  (http://localhost:5001)
+                                               └────────────────────────┘
+```
+
+1. **Zero-Effort Operator Workflow**:  
+   Users simply drag unwanted emails into a dedicated mailbox folder (`@Safe-Unsubscribe`), or configure a server-side mail rule to route suspect messages automatically.
+2. **Instant Push Detection via IMAP IDLE (`RFC 2177`)**:  
+   The daemon maintains an efficient, persistent TLS connection with upstream IMAP servers. Message arrivals trigger real-time push notifications without polling overhead, backed by exponential backoff reconnection recovery.
+3. **Automated Provisioning**:  
+   On startup, the daemon checks for and provisions the complete folder hierarchy across IMAP directory separators:
+   - `@Safe-Unsubscribe` *(Monitored Ingestion Queue)*
+   - `@Safe-Unsubscribe/Archive` *(Successfully processed safe opt-outs)*
+   - `@Safe-Unsubscribe/Quarantine` *(Isolated phishing lures and tracking traps)*
+   - `@Safe-Unsubscribe/Audit` *(In-mailbox cryptographic forensic audit reports)*
+4. **Threat Quarantine vs. Sterile Opt-Out**:  
+   - **Poison Traps**: Messages classified with poison signals or unaligned provenance are immediately tagged with the `$SuspiciousTrap` IMAP keyword and moved to `@Safe-Unsubscribe/Quarantine`. Automated execution is strictly refused.
+   - **Legitimate Newsletters**: Messages verified as qualifying RFC 8058 One-Click POST candidates can be automatically unsubscribed via isolated sterile HTTP POST requests (`AutoExecuteSterileUnsubscribe: true`), tagged with `$SafeUnsubscribed`, and moved to `@Safe-Unsubscribe/Archive`.
+5. **In-Mailbox Forensic Audit Reports**:  
+   For every processed message, a defanged RFC 822 MIME summary message is generated into `@Safe-Unsubscribe/Audit` (tagged with `$AuditLogged`). Reports include defanged links (`hxxps://`), receiving MX alignment verdicts, SHA-256 digests of the original email, and exact HTTP response metrics.
+
+---
+
+## 🏛️ Portfolio Architectural Invariants
+
+Within the `@knowthankyew` open-source privacy portfolio, `mail-stripper-imap` operates under non-negotiable architectural boundaries:
+
+### The Air-Gap Boundary: Companion A vs. Companion B
+- **Companion A ([`mailStripper`](https://github.com/knowthankyew/mail-stripper))**:  
+  An air-gapped forensic parser and interactive web viewer. Enforces strict Content Security Policy (`connect-src 'self' http://localhost:8000;`) with **zero outbound internet access**. It analyzes raw RFC 822 bytes locally but never initiates external network requests.
+- **Companion B ([`mail-stripper-imap`](https://github.com/knowthankyew/mail-stripper-imap))**:  
+  The active network protocol client. It connects upstream over TLS to remote IMAP servers and issues outbound opt-outs under strict sterile constraints.
+
+### Core Non-Negotiable Invariants
+
+| Invariant | Implementation | Architectural Guarantee |
+|:---|:---|:---|
+| **1. 100% Volatile RAM Ingestion** | `System.IO.MemoryStream` | All email parsing, streaming, and forensic relay occurs entirely in transient memory. Zero bytes are ever written to `/tmp` or persistent disk. |
+| **2. Sterile RFC 8058 Execution** | `SocketsHttpHandler` | Opt-out HTTP POST requests strictly enforce `UseCookies = false`, `AllowAutoRedirect = false`, drop response streams immediately upon header receipt, require `https://`, and reject poison lures. |
+| **3. Central Package Management (CPM)** | `Directory.Packages.props` | All NuGet package versions are centrally managed. Patched dependencies (e.g. `System.Security.Cryptography.Pkcs >= 10.0.13`) prevent supply-chain vulnerabilities. |
+| **4. Fail-Closed Security Audits** | `Directory.Build.props` | MSBuild treats package vulnerability warnings (`NU1901-NU1904`) as fatal compilation errors. |
+| **5. Heap Memory Safety** | `MaxMessageByteSize = 15 MB` | Bounded message size budget prevents memory exhaustion or denial-of-service during high-volume mailbox sweeps. |
+| **6. Unprivileged Sandboxed Execution** | `USER $APP_UID` & systemd | Docker images run under non-root user (UID 1654); systemd units enforce strict kernel sandboxing (`ProtectSystem=strict`, `NoNewPrivileges=true`, `PrivateTmp=true`). |
+| **7. Claims & Number Parity** | `scripts/audit-claims.mjs` | Dynamic linter executes `dotnet test` and verifies that all documented numbers match reality. |
+
+---
+
+## 🚀 Quickstart
 
 Clone the repository and run:
 
@@ -48,7 +123,7 @@ docker build -t mail-stripper-imap:latest .
 # Run container with environment configuration
 docker run -d \
   --name mail-stripper-imap \
-  -p 8080:8080 \
+  -p 127.0.0.1:8080:8080 \
   -e IMAP__HOST=imap.example.com \
   -e IMAP__PORT=993 \
   -e IMAP__USE_SSL=true \
@@ -60,19 +135,19 @@ docker run -d \
 
 ### Docker Compose Orchestration
 
-Run both `mail-stripper` (the analyzer engine) and `mail-stripper-imap` (the protocol watcher) together:
+Run both `mail-stripper` (the forensic analyzer) and `mail-stripper-imap` (the protocol watcher) together:
 
 ```bash
 docker compose up -d
 ```
 
-The composition exposes port `5001` for the forensic analyzer and port `8080` for watcher health probes.
+The composition exposes port `5001` on loopback for the analyzer engine and port `8080` for watcher health probes.
 
 ---
 
 ## 🐧 Linux Systemd Service
 
-For bare-metal Linux servers and VMs, a hardened systemd unit file is provided at `systemd/mail-stripper-imap.service`:
+For bare-metal Linux servers and VMs, a hardened systemd unit file is provided at [`systemd/mail-stripper-imap.service`](systemd/mail-stripper-imap.service):
 
 ```bash
 # 1. Install published binaries
@@ -95,13 +170,11 @@ sudo systemctl enable --now mail-stripper-imap
 sudo systemctl status mail-stripper-imap
 ```
 
-The service runs under strict kernel sandboxing directives (`ProtectSystem=strict`, `NoNewPrivileges=true`, `PrivateTmp=true`, `ProtectHome=true`, `RestrictRealtime=true`).
-
 ---
 
-## 🩺 Health Monitoring & Probes
+## 🩺 Health Monitoring & Orchestrator Probes
 
-The daemon provides an embedded HTTP health server (default port `8080`):
+The daemon provides an embedded HTTP health server (default loopback `127.0.0.1:8080`):
 
 | Endpoint | Probe Type | Description | Healthy Response |
 |:---------|:-----------|:------------|:-----------------|
@@ -157,13 +230,17 @@ Configuration can be specified in `appsettings.json`, via standard hierarchical 
 
 ## 🧪 Testing & Verification
 
-- **xUnit Automated Tests**:
+- **xUnit Automated Tests (50/50 unit tests pass)**:
   ```bash
   dotnet test
   ```
-- **Architectural Claims Audit**:
+- **Architectural Claims & Security Invariant Audit**:
   ```bash
   node scripts/audit-claims.mjs
+  ```
+- **Demo Re-Recording**:
+  ```bash
+  ./scripts/record-demo.sh
   ```
 
 ---

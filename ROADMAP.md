@@ -47,7 +47,7 @@ Under portfolio governance boundaries:
   - Downloads message stream into volatile `MemoryStream` (zero disk writes).
   - Dispatches to `mailStripper` and categorizes verdicts.
 - [x] **Testing & Verification**:
-  - xUnit unit tests verifying sterile dispatcher and client streaming.
+  - 50/50 unit tests pass verifying sterile dispatcher, client streaming, folder provisioning, audit generation, health probes, and options binding.
   - Automated architectural claims audit (`scripts/audit-claims.mjs`).
 
 ### Milestone 2: Folder Quarantine & Segregation (`v0.2.0`)

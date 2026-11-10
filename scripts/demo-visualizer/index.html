@@ -1,0 +1,652 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>mail-stripper-imap — Protocol-Level IMAP IDLE Quarantine Watcher Demo</title>
+  <style>
+    :root {
+      --bg: #090d16;
+      --card-bg: #0f172a;
+      --card-border: #1e293b;
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+      --cyan: #38bdf8;
+      --green: #22c55e;
+      --red: #ef4444;
+      --amber: #f59e0b;
+      --indigo: #818cf8;
+      --terminal-bg: #030712;
+      --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text-main);
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      width: 1366px;
+      height: 860px;
+    }
+
+    /* Top Navbar */
+    header {
+      background: rgba(15, 23, 42, 0.85);
+      backdrop-filter: blur(8px);
+      border-bottom: 1px solid var(--card-border);
+      padding: 12px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 64px;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .brand-icon {
+      width: 36px;
+      height: 36px;
+      background: linear-gradient(135deg, #0284c7, #0369a1);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      border: 1px solid rgba(56, 189, 248, 0.3);
+      box-shadow: 0 0 15px rgba(2, 132, 199, 0.3);
+    }
+    .brand-title {
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .version-tag {
+      font-size: 11px;
+      background: #1e293b;
+      color: var(--cyan);
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-family: var(--font-mono);
+      border: 1px solid rgba(56, 189, 248, 0.2);
+    }
+    .brand-desc {
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+    .invariants-bar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .inv-pill {
+      font-size: 11px;
+      font-weight: 600;
+      padding: 4px 10px;
+      border-radius: 9999px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      border: 1px solid transparent;
+      font-family: var(--font-mono);
+    }
+    .inv-ram { background: rgba(34, 197, 94, 0.1); color: var(--green); border-color: rgba(34, 197, 94, 0.25); }
+    .inv-sterile { background: rgba(56, 189, 248, 0.1); color: var(--cyan); border-color: rgba(56, 189, 248, 0.25); }
+    .inv-cpm { background: rgba(129, 140, 248, 0.1); color: var(--indigo); border-color: rgba(129, 140, 248, 0.25); }
+    .inv-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+
+    /* Main Dashboard Layout */
+    .dashboard {
+      flex: 1;
+      display: grid;
+      grid-template-columns: 280px 1fr 390px;
+      gap: 16px;
+      padding: 16px 24px;
+      height: calc(860px - 64px);
+    }
+
+    /* Left: Mailbox Folders */
+    .panel {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 10px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .panel-header {
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--card-border);
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: rgba(15, 23, 42, 0.5);
+    }
+    .folder-list {
+      padding: 12px 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      flex: 1;
+    }
+    .folder-item {
+      padding: 10px 12px;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 13px;
+      color: var(--text-main);
+      background: transparent;
+      border: 1px solid transparent;
+      transition: all 0.2s ease;
+    }
+    .folder-item.active {
+      background: rgba(56, 189, 248, 0.08);
+      border-color: rgba(56, 189, 248, 0.25);
+      color: var(--cyan);
+    }
+    .folder-item.quarantine-highlight {
+      background: rgba(239, 68, 68, 0.12);
+      border-color: rgba(239, 68, 68, 0.4);
+      animation: pulse-red 1.5s infinite;
+    }
+    .folder-item.archive-highlight {
+      background: rgba(34, 197, 94, 0.12);
+      border-color: rgba(34, 197, 94, 0.4);
+      animation: pulse-green 1.5s infinite;
+    }
+    .folder-name {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .folder-count {
+      font-size: 11px;
+      font-family: var(--font-mono);
+      padding: 2px 6px;
+      border-radius: 4px;
+      background: #1e293b;
+      color: var(--text-muted);
+    }
+    .folder-item.active .folder-count {
+      background: rgba(56, 189, 248, 0.2);
+      color: var(--cyan);
+    }
+    .imap-meta-card {
+      margin: 12px;
+      padding: 12px;
+      background: #090d16;
+      border: 1px solid var(--card-border);
+      border-radius: 6px;
+      font-size: 11px;
+      font-family: var(--font-mono);
+      color: var(--text-muted);
+      line-height: 1.6;
+    }
+    .imap-meta-card strong { color: var(--text-main); }
+
+    /* Center: Terminal Log */
+    .terminal-panel {
+      background: var(--terminal-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 10px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      font-family: var(--font-mono);
+    }
+    .terminal-topbar {
+      padding: 10px 16px;
+      background: #0f172a;
+      border-bottom: 1px solid var(--card-border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .window-controls {
+      display: flex;
+      gap: 6px;
+    }
+    .control-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+    }
+    .dot-red { background: #ef4444; }
+    .dot-yellow { background: #f59e0b; }
+    .dot-green { background: #22c55e; }
+    .terminal-title {
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+    .terminal-body {
+      padding: 16px;
+      flex: 1;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      font-size: 12px;
+      line-height: 1.5;
+    }
+    .log-line {
+      display: flex;
+      gap: 8px;
+    }
+    .log-ts { color: #64748b; flex-shrink: 0; }
+    .log-info { color: #38bdf8; }
+    .log-warn { color: #f59e0b; }
+    .log-crit { color: #ef4444; font-weight: bold; }
+    .log-pass { color: #22c55e; }
+    .log-kw { color: #a855f7; }
+
+    /* Right: Forensic Details & Health Probes */
+    .right-col {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .forensic-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 10px;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .verdict-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .verdict-badge {
+      font-size: 11px;
+      font-weight: 700;
+      padding: 4px 10px;
+      border-radius: 4px;
+      font-family: var(--font-mono);
+      text-transform: uppercase;
+    }
+    .verdict-poison { background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.4); }
+    .verdict-safe { background: rgba(34, 197, 94, 0.2); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.4); }
+    .risk-meter-wrap {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .meter-label {
+      font-size: 11px;
+      color: var(--text-muted);
+      display: flex;
+      justify-content: space-between;
+    }
+    .meter-bar {
+      height: 6px;
+      background: #1e293b;
+      border-radius: 3px;
+      overflow: hidden;
+    }
+    .meter-fill {
+      height: 100%;
+      border-radius: 3px;
+      transition: width 0.6s ease;
+    }
+    .fill-poison { width: 95%; background: linear-gradient(90deg, #f59e0b, #ef4444); }
+    .fill-safe { width: 10%; background: #22c55e; }
+
+    .prop-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 12px;
+      padding: 6px 0;
+      border-bottom: 1px solid rgba(51, 65, 85, 0.4);
+    }
+    .prop-label { color: var(--text-muted); }
+    .prop-value { font-family: var(--font-mono); font-size: 11px; color: var(--text-main); }
+    .prop-value.defanged { color: #f59e0b; }
+
+    /* Health JSON Card */
+    .health-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 10px;
+      padding: 16px;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .health-title {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--cyan);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-family: var(--font-mono);
+    }
+    .json-preview {
+      background: #030712;
+      border: 1px solid var(--card-border);
+      border-radius: 6px;
+      padding: 10px 12px;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: #94a3b8;
+      line-height: 1.45;
+      flex: 1;
+      overflow-y: auto;
+    }
+    .json-key { color: #38bdf8; }
+    .json-str { color: #a3e635; }
+    .json-bool { color: #f43f5e; font-weight: bold; }
+    .json-num { color: #fbbf24; }
+
+    @keyframes pulse-red {
+      0%, 100% { border-color: rgba(239, 68, 68, 0.4); }
+      50% { border-color: rgba(239, 68, 68, 1); box-shadow: 0 0 10px rgba(239, 68, 68, 0.3); }
+    }
+    @keyframes pulse-green {
+      0%, 100% { border-color: rgba(34, 197, 94, 0.4); }
+      50% { border-color: rgba(34, 197, 94, 1); box-shadow: 0 0 10px rgba(34, 197, 94, 0.3); }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Header -->
+  <header>
+    <div class="brand">
+      <div class="brand-icon">📬</div>
+      <div>
+        <div class="brand-title">
+          mail-stripper-imap
+          <span class="version-tag">v0.4.0</span>
+        </div>
+        <div class="brand-desc">Protocol-Level IMAP IDLE Quarantine Watcher & Sterile Opt-Out Daemon</div>
+      </div>
+    </div>
+    <div class="invariants-bar">
+      <div class="inv-pill inv-ram">
+        <span class="inv-dot"></span> 100% Volatile RAM (Zero Disk Writes)
+      </div>
+      <div class="inv-pill inv-sterile">
+        <span class="inv-dot"></span> Sterile RFC 8058 (Zero Cookies/Redirects)
+      </div>
+      <div class="inv-pill inv-cpm">
+        <span class="inv-dot"></span> Fail-Closed NU1901-NU1904
+      </div>
+    </div>
+  </header>
+
+  <!-- Dashboard -->
+  <main class="dashboard">
+
+    <!-- Column 1: Mailbox Explorer -->
+    <aside class="panel">
+      <div class="panel-header">
+        <span>Mailbox Explorer</span>
+        <span style="color: var(--green); font-size: 11px;">● IDLE Active</span>
+      </div>
+      <div class="folder-list">
+        <div class="folder-item active" id="folderInbox">
+          <span class="folder-name">📥 @Safe-Unsubscribe</span>
+          <span class="folder-count" id="countInbox">0</span>
+        </div>
+        <div class="folder-item" id="folderArchive">
+          <span class="folder-name">📦 …/Archive</span>
+          <span class="folder-count" id="countArchive">0</span>
+        </div>
+        <div class="folder-item" id="folderQuarantine">
+          <span class="folder-name">🚨 …/Quarantine</span>
+          <span class="folder-count" id="countQuarantine">0</span>
+        </div>
+        <div class="folder-item" id="folderAudit">
+          <span class="folder-name">📑 …/Audit</span>
+          <span class="folder-count" id="countAudit">0</span>
+        </div>
+      </div>
+
+      <div class="imap-meta-card">
+        <div><strong>Server:</strong> imap.enterprise-mx.net</div>
+        <div><strong>Port:</strong> 993 (Implicit TLS 1.3)</div>
+        <div><strong>Keepalive:</strong> RFC 2177 (9-min cycle)</div>
+        <div><strong>Buffer Budget:</strong> 15 MB in RAM</div>
+        <div style="margin-top: 6px; color: var(--green);">✓ Zero disk tempfiles created</div>
+      </div>
+    </aside>
+
+    <!-- Column 2: Terminal Logs -->
+    <section class="terminal-panel">
+      <div class="terminal-topbar">
+        <div class="window-controls">
+          <span class="control-dot dot-red"></span>
+          <span class="control-dot dot-yellow"></span>
+          <span class="control-dot dot-green"></span>
+        </div>
+        <div class="terminal-title">mail-stripper-imap daemon console (pid: 4812)</div>
+        <div style="font-size: 11px; color: var(--green);">● Listening :8080</div>
+      </div>
+      <div class="terminal-body" id="terminalLogs">
+        <!-- Dynamically populated via JS script -->
+      </div>
+    </section>
+
+    <!-- Column 3: Forensic Verdict & Health -->
+    <aside class="right-col">
+      <!-- Forensic Inspection Card -->
+      <div class="forensic-card">
+        <div class="verdict-header">
+          <span style="font-size: 13px; font-weight: 600;">Static Forensics</span>
+          <span class="verdict-badge verdict-safe" id="badgeVerdict">STANDBY</span>
+        </div>
+        <div class="risk-meter-wrap">
+          <div class="meter-label">
+            <span>Threat Risk Score</span>
+            <span id="scoreText">0 / 100</span>
+          </div>
+          <div class="meter-bar">
+            <div class="meter-fill fill-safe" id="meterFill" style="width: 0%;"></div>
+          </div>
+        </div>
+        <div class="prop-row">
+          <span class="prop-label">Receiving MX Auth:</span>
+          <span class="prop-value" id="valAuthserv">Pending</span>
+        </div>
+        <div class="prop-row">
+          <span class="prop-label">Classification:</span>
+          <span class="prop-value" id="valClass">IdleWaiting</span>
+        </div>
+        <div class="prop-row">
+          <span class="prop-label">Candidate URL:</span>
+          <span class="prop-value defanged" id="valUrl">--</span>
+        </div>
+        <div class="prop-row">
+          <span class="prop-label">Action Taken:</span>
+          <span class="prop-value" id="valAction">Watching IDLE socket</span>
+        </div>
+      </div>
+
+      <!-- Health Probe Card -->
+      <div class="health-card">
+        <div class="health-title">
+          <span>🩺 Orchestrator Health Probe</span>
+          <span style="color: var(--cyan); font-size: 11px;">GET /healthz</span>
+        </div>
+        <div class="json-preview" id="healthJson">
+{
+  <span class="json-key">"status"</span>: <span class="json-str">"Starting"</span>,
+  <span class="json-key">"connected"</span>: <span class="json-bool">false</span>,
+  <span class="json-key">"healthy"</span>: <span class="json-bool">false</span>,
+  <span class="json-key">"uptimeSeconds"</span>: <span class="json-num">0.0</span>,
+  <span class="json-key">"messagesProcessedCount"</span>: <span class="json-num">0</span>,
+  <span class="json-key">"lastError"</span>: <span class="json-str">null</span>
+}
+        </div>
+      </div>
+    </aside>
+
+  </main>
+
+  <script>
+    // Automated Demo Scripting Engine
+    const logs = document.getElementById('terminalLogs');
+    const badge = document.getElementById('badgeVerdict');
+    const meter = document.getElementById('meterFill');
+    const scoreText = document.getElementById('scoreText');
+    const valAuthserv = document.getElementById('valAuthserv');
+    const valClass = document.getElementById('valClass');
+    const valUrl = document.getElementById('valUrl');
+    const valAction = document.getElementById('valAction');
+    const healthJson = document.getElementById('healthJson');
+
+    const countInbox = document.getElementById('countInbox');
+    const countArchive = document.getElementById('countArchive');
+    const countQuarantine = document.getElementById('countQuarantine');
+    const countAudit = document.getElementById('countAudit');
+
+    const folderInbox = document.getElementById('folderInbox');
+    const folderArchive = document.getElementById('folderArchive');
+    const folderQuarantine = document.getElementById('folderQuarantine');
+    const folderAudit = document.getElementById('folderAudit');
+
+    function log(text, cls = 'log-info') {
+      const ts = new Date().toISOString().substring(11, 19);
+      const div = document.createElement('div');
+      div.className = 'log-line';
+      div.innerHTML = `<span class="log-ts">[${ts}]</span><span class="${cls}">${text}</span>`;
+      logs.appendChild(div);
+      logs.scrollTop = logs.scrollHeight;
+    }
+
+    function setHealth(status, connected, healthy, uptime, count, err = null) {
+      healthJson.innerHTML = `{\n  <span class="json-key">"status"</span>: <span class="json-str">"${status}"</span>,\n  <span class="json-key">"connected"</span>: <span class="json-bool">${connected}</span>,\n  <span class="json-key">"healthy"</span>: <span class="json-bool">${healthy}</span>,\n  <span class="json-key">"uptimeSeconds"</span>: <span class="json-num">${uptime}</span>,\n  <span class="json-key">"messagesProcessedCount"</span>: <span class="json-num">${count}</span>,\n  <span class="json-key">"lastError"</span>: ${err ? `<span class="json-str">"${err}"</span>` : 'null'}\n}`;
+    }
+
+    async function sleep(ms) {
+      return new Promise(r => setTimeout(r, ms));
+    }
+
+    async function runDemoSimulation() {
+      // Step 1: Bootstrapping
+      log('=================================================', 'log-info');
+      log('MailStripper IMAP Protocol Watcher (v0.4.0)', 'log-info');
+      log('100% Volatile RAM Ingestion · Zero Disk Writes', 'log-pass');
+      log('Central Package Management · Fail-Closed NU1901-NU1904', 'log-info');
+      log('=================================================', 'log-info');
+      await sleep(1000);
+
+      log('Health probe HTTP listener bound on 127.0.0.1:8080 (/healthz, /readyz, /livez)', 'log-pass');
+      log('Connecting to imap.enterprise-mx.net:993 (SSL/TLS)...', 'log-info');
+      await sleep(1200);
+
+      log('Authenticated as user@enterprise-mx.net', 'log-info');
+      log('Provisioning folder hierarchy: Ensuring @Safe-Unsubscribe, Archive, Quarantine, Audit exist...', 'log-info');
+      await sleep(1000);
+
+      log('Folder hierarchy verified. Watching @Safe-Unsubscribe (Total Messages: 0)', 'log-pass');
+      log('IMAP IDLE push loop active. Entering wait state (keepalive ping <= 9 min)...', 'log-info');
+      setHealth('Healthy', true, true, 4.2, 0);
+      await sleep(1500);
+
+      // Step 2: Ingest Deceptive Phishing / Recon Trap
+      log('>>> IMAP IDLE CountChanged: 1 new message arrived (UID 1042)', 'log-warn');
+      countInbox.textContent = '1';
+      folderInbox.classList.add('active');
+      await sleep(1000);
+
+      log('Streaming raw RFC 822 bytes into volatile MemoryStream (Size: 142.8 KB, Zero disk writes)', 'log-pass');
+      log('Transmitting in-memory stream to local mailStripper (:5001/api/strip/file)...', 'log-info');
+      await sleep(1200);
+
+      // Threat Verdict
+      badge.className = 'verdict-badge verdict-poison';
+      badge.textContent = 'POISON / RECON TRAP';
+      meter.className = 'meter-fill fill-poison';
+      meter.style.width = '95%';
+      scoreText.textContent = '95 / 100 (Critical)';
+      valAuthserv.textContent = 'Unaligned / Missing';
+      valClass.textContent = 'PoisonOrReconTrap';
+      valUrl.textContent = 'hxxps://auth-verify.xyz/beacon?v=user@work.com';
+      valAction.textContent = 'Quarantined & Tagged $SuspiciousTrap';
+
+      log('🚨 FORENSIC VERDICT: PoisonOrReconTrap (Risk: 95/100). Reason: Unaligned host & tracking beacon.', 'log-crit');
+      log('Refusing automated HTTP execution (Poison signal guardrail triggered)', 'log-warn');
+      log('Applying IMAP keyword $SuspiciousTrap on UID 1042...', 'log-kw');
+      log('Moving UID 1042 -> @Safe-Unsubscribe/Quarantine...', 'log-info');
+
+      countInbox.textContent = '0';
+      countQuarantine.textContent = '1';
+      folderQuarantine.classList.add('quarantine-highlight');
+      await sleep(1200);
+
+      log('Synthesizing cryptographic in-mailbox MIME audit summary (SHA-256 digest + defanged links)...', 'log-info');
+      log('Appending audit MIME to @Safe-Unsubscribe/Audit with $AuditLogged flag...', 'log-pass');
+      countAudit.textContent = '1';
+      setHealth('Healthy', true, true, 18.5, 1);
+      await sleep(2200);
+
+      // Step 3: Ingest Legitimate One-Click Newsletter
+      log('>>> IMAP IDLE CountChanged: 1 new message arrived (UID 1043)', 'log-info');
+      countInbox.textContent = '1';
+      await sleep(1000);
+
+      log('Streaming raw RFC 822 bytes into volatile MemoryStream (Size: 48.2 KB, Zero disk writes)', 'log-pass');
+      log('Transmitting in-memory stream to local mailStripper (:5001/api/strip/file)...', 'log-info');
+      await sleep(1200);
+
+      // Safe Verdict
+      badge.className = 'verdict-badge verdict-safe';
+      badge.textContent = 'ONE-CLICK POST CANDIDATE';
+      meter.className = 'meter-fill fill-safe';
+      meter.style.width = '10%';
+      scoreText.textContent = '10 / 100 (Safe)';
+      valAuthserv.textContent = 'mx.google.com (Aligned)';
+      valClass.textContent = 'OneClickPostCandidate';
+      valUrl.textContent = 'hxxps://news.techcorp.io/api/unsubscribe';
+      valAction.textContent = 'Sterile HTTP POST (No Cookies/Redirects)';
+
+      log('✓ FORENSIC VERDICT: OneClickPostCandidate (Risk: 10/100). DKIM aligned with mx.google.com.', 'log-pass');
+      log('Auto-executing sterile RFC 8058 opt-out: POST https://news.techcorp.io/api/unsubscribe', 'log-info');
+      log('Sterile dispatch policy: UseCookies = false, AllowAutoRedirect = false, drop payload immediately.', 'log-pass');
+      await sleep(1200);
+
+      log('Sterile HTTP POST response received: HTTP 200 OK (Opt-out acknowledged by upstream ESP)', 'log-pass');
+      log('Applying IMAP keyword $SafeUnsubscribed on UID 1043...', 'log-kw');
+      log('Moving UID 1043 -> @Safe-Unsubscribe/Archive...', 'log-info');
+
+      countInbox.textContent = '0';
+      countArchive.textContent = '1';
+      folderArchive.classList.add('archive-highlight');
+      await sleep(1000);
+
+      log('Synthesizing cryptographic in-mailbox MIME audit summary (HTTP 200 result + SHA-256)...', 'log-info');
+      log('Appending audit MIME to @Safe-Unsubscribe/Audit with $AuditLogged flag...', 'log-pass');
+      countAudit.textContent = '2';
+      setHealth('Healthy', true, true, 34.8, 2);
+      await sleep(2000);
+
+      log('Probe verify: Orchestrator queried /healthz -> 200 OK (Healthy, connected: true, 2 processed)', 'log-pass');
+      log('Resuming IMAP IDLE push loop on @Safe-Unsubscribe...', 'log-info');
+    }
+
+    window.addEventListener('DOMContentLoaded', () => {
+      runDemoSimulation();
+    });
+  </script>
+</body>
+</html>
