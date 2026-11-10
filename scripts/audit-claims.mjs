@@ -20,10 +20,67 @@ import { execSync } from 'node:child_process';
 import {
   stripLineComment,
   stripBlockComments,
-  stripCSharpComments,
   scanDocumentationForVocabulary,
   BANNED_VOCABULARY,
 } from './claims-linter-core.mjs';
+
+/**
+ * Strips C# // comments from a single line while respecting C# character and string literals.
+ */
+function stripCSharpLineComment(line) {
+  let inString = false;
+  let inChar = false;
+  let escape = false;
+
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+
+    if (inChar) {
+      if (escape) {
+        escape = false;
+      } else if (c === '\\') {
+        escape = true;
+      } else if (c === "'") {
+        inChar = false;
+      }
+      continue;
+    }
+
+    if (inString) {
+      if (escape) {
+        escape = false;
+      } else if (c === '\\') {
+        escape = true;
+      } else if (c === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (c === "'") {
+      inChar = true;
+      escape = false;
+    } else if (c === '"') {
+      inString = true;
+      escape = false;
+    } else if (c === '/' && line[i + 1] === '/') {
+      return line.slice(0, i);
+    }
+  }
+
+  return line;
+}
+
+/**
+ * Strips C# comments (both block and line comments) from C# source code.
+ */
+function stripCSharpComments(source) {
+  const noBlock = stripBlockComments(source);
+  return noBlock
+    .split('\n')
+    .map(line => stripCSharpLineComment(line))
+    .join('\n');
+}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

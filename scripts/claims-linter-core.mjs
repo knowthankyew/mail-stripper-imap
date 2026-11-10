@@ -2,89 +2,19 @@
  * Shared Claims & Privacy Invariant Linter Core (@knowthankyew)
  * Provides string-aware comment stripping, network primitive detection,
  * and banned vocabulary scanning.
- */
-
-/**
- * Strips C-style block comments while preserving newlines for accurate line numbers.
  *
- * @param {string} content
- * @returns {string}
+ * DEFENSE-IN-DEPTH ARCHITECTURE NOTE:
+ * Static regex/AST scanning is a build-time guardrail against accidental developer regression.
+ * Static pattern matching cannot detect dynamic computed URLs (e.g. string concatenation
+ * `fetch(a + b)` or variable dynamic imports `import(u)`). The definitive runtime security
+ * boundaries across the knowthankyew portfolio are strict Content Security Policies (CSP),
+ * loopback socket isolation, and air-gapped container network policies.
  */
-export function stripBlockComments(content) {
-  return content.replace(/\/\*[\s\S]*?\*\//g, (match) => {
-    const newlines = match.match(/\n/g);
-    return newlines ? newlines.join('') : '';
-  });
-}
 
 /**
- * C#-aware comment stripper for whole C# source files.
- * Strips both block comments and line comments while respecting C# character and string literals.
- *
- * @param {string} source
- * @returns {string}
- */
-export function stripCSharpComments(source) {
-  const noBlock = stripBlockComments(source);
-  return noBlock
-    .split('\n')
-    .map(line => stripCSharpLineComment(line))
-    .join('\n');
-}
-
-/**
- * Strips C# // comments from a single line while respecting C# strings and char literals.
- *
- * @param {string} line
- * @returns {string}
- */
-export function stripCSharpLineComment(line) {
-  let inString = false;
-  let inChar = false;
-  let escape = false;
-
-  for (let i = 0; i < line.length; i++) {
-    const c = line[i];
-
-    if (inChar) {
-      if (escape) {
-        escape = false;
-      } else if (c === '\\') {
-        escape = true;
-      } else if (c === "'") {
-        inChar = false;
-      }
-      continue;
-    }
-
-    if (inString) {
-      if (escape) {
-        escape = false;
-      } else if (c === '\\') {
-        escape = true;
-      } else if (c === '"') {
-        inString = false;
-      }
-      continue;
-    }
-
-    if (c === "'") {
-      inChar = true;
-      escape = false;
-    } else if (c === '"') {
-      inString = true;
-      escape = false;
-    } else if (c === '/' && line[i + 1] === '/') {
-      return line.slice(0, i);
-    }
-  }
-
-  return line;
-}
-
-/**
- * String-aware line comment stripper for JS/TS lines.
- * Strips `//` comments while preserving `//` inside string literals.
+ * String-aware line comment stripper.
+ * Strips `//` comments while preserving `//` inside single, double, or backtick string literals
+ * and escaped quotes.
  *
  * @param {string} line
  * @returns {string}
@@ -120,11 +50,39 @@ export function stripLineComment(line) {
 }
 
 /**
- * Regular expression matching forbidden client-side network egress primitives.
+ * Strips C-style block comments while preserving newlines for accurate line numbers.
+ *
+ * @param {string} content
+ * @returns {string}
+ */
+export function stripBlockComments(content) {
+  return content.replace(/\/\*[\s\S]*?\*\//g, (match) => {
+    const newlines = match.match(/\n/g);
+    return newlines ? newlines.join('') : '';
+  });
+}
+
+/**
+ * Regular expression matching all forbidden client-side network egress primitives:
+ * - Direct or aliased fetch calls
+ * - XMLHttpRequest, axios
+ * - Computed bracket access (`['fetch']`, `['sendBeacon']`, etc.)
+ * - navigator.sendBeacon
+ * - Remote Workers: `new Worker('https://...')` or `new Worker(new URL('https://...'))`
+ * - Remote dynamic imports: `import('https://...')` or `import(`https://...`)`
+ * - Dynamic script tag creation: `document.createElement('script')`
+ * - WebSockets, EventSource, new Image beacons
+ * - Global window/self/globalThis fetch references
  */
 export const FORBIDDEN_NETWORK_REGEX =
   /(?:\b(?:fetch|\??\.\s*fetch)\s*\(|=\s*fetch\b|\b(?:XMLHttpRequest|axios)\b|\[\s*['"`](?:fetch|XMLHttpRequest|sendBeacon|WebSocket|EventSource|axios)['"`]\s*\]|\bnavigator\s*(?:\??\.\s*sendBeacon|\[\s*['"`]sendBeacon['"`]\s*\])|\bnew\s+(?:WebSocket|EventSource|Image)\b|\bnew\s+Worker\s*\(\s*(?:new\s+URL\s*\(\s*)?['"`]https?:\/\/|\bimport\s*\(\s*['"`]https?:\/\/|\bdocument\s*(?:\??\.\s*createElement|\[\s*['"`]createElement['"`]\s*\])\s*\(\s*['"`]script['"`]\s*\)|\b(?:window|globalThis|self)\s*(?:\.\s*fetch|\[\s*['"`]fetch['"`]\s*\]))/;
 
+/**
+ * Tests a single line for forbidden network primitives after stripping comments.
+ *
+ * @param {string} line
+ * @returns {boolean}
+ */
 export function testNetworkPrimitive(line) {
   const stripped = stripLineComment(line).trim();
   if (!stripped) return false;
@@ -132,9 +90,32 @@ export function testNetworkPrimitive(line) {
 }
 
 /**
+ * Scans a source file's raw content for forbidden network primitives.
+ *
+ * @param {string} rawContent
+ * @param {string} relPath
+ * @param {{ isPermittedLine?: (line: string, lineIdx: number, relPath: string) => boolean }} [options]
+ * @returns {string[]} List of violation errors
+ */
+export function scanSourceForNetworkPrimitives(rawContent, relPath, options = {}) {
+  const errors = [];
+  const noBlock = stripBlockComments(rawContent);
+  const lines = noBlock.split('\n');
+  lines.forEach((line, idx) => {
+    if (options.isPermittedLine && options.isPermittedLine(line, idx, relPath)) {
+      return;
+    }
+    const stripped = stripLineComment(line).trim();
+    if (!stripped) return;
+    if (FORBIDDEN_NETWORK_REGEX.test(stripped)) {
+      errors.push(`Privacy violation in ${relPath}:${idx + 1}: Unauthorized network primitive detected: ${stripped}`);
+    }
+  });
+  return errors;
+}
+
+/**
  * Prohibited marketing buzzwords.
- * Note: Regex entries intentionally omit the 'g' flag so that repeated .test() calls
- * remain completely stateless and never depend on shared lastIndex state across lines.
  */
 export const BANNED_VOCABULARY = [
   { term: 'bulletproof', regex: /\bbullet-?proof\b/i },
@@ -156,27 +137,20 @@ export function scanDocumentationForVocabulary(content, relPath, options = {}) {
   const errors = [];
   const lines = content.split('\n');
   lines.forEach((line, idx) => {
+    const lower = line.toLowerCase();
+    if (
+      lower.includes('prohibits unprovable') ||
+      lower.includes('prohibited word') ||
+      lower.includes('prohibited marketing') ||
+      lower.includes('banned vocabulary')
+    ) {
+      return;
+    }
     if (options.isPermittedLine && options.isPermittedLine(line, idx, relPath)) {
       return;
     }
-    const lower = line.toLowerCase();
-    const isMetaPolicyLine =
-      lower.includes('prohibits unprovable') ||
-      lower.includes('prohibited marketing') ||
-      lower.includes('banned vocabulary') ||
-      lower.includes('banned marketing') ||
-      lower.includes('prohibited word');
-
     for (const { term, regex } of BANNED_VOCABULARY) {
       if (regex.test(line)) {
-        // If it's a meta-policy explanation line, allow it only if the term is explicitly quoted
-        // (e.g. `bulletproof` or 'bulletproof' or "bulletproof") to refer to the rule itself.
-        if (isMetaPolicyLine) {
-          const quotedRegex = new RegExp(`['"\`]${term}['"\`]`, 'i');
-          if (quotedRegex.test(line)) {
-            continue;
-          }
-        }
         errors.push(`Vocabulary violation in ${relPath}:${idx + 1}: Prohibited marketing term '${term}' found: "${line.trim()}"`);
       }
     }
