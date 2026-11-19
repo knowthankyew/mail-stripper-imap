@@ -128,8 +128,11 @@ public class FolderManagerTests
         var destFolder = Substitute.For<IMailFolder>();
         var uid = new UniqueId(100);
 
-        sourceFolder.MoveToAsync(uid, destFolder, Arg.Any<CancellationToken>())
-            .Returns(new UniqueId(200));
+        sourceFolder.MoveToAsync(
+            Arg.Is<IList<UniqueId>>(uids => uids.Count == 1 && uids[0] == uid),
+            Arg.Is<IMoveRequest>(r => r.Destination == destFolder),
+            Arg.Any<CancellationToken>())
+            .Returns(new UniqueIdMap(new[] { uid }, new[] { new UniqueId(200) }));
         destFolder.IsOpen.Returns(false);
 
         await _manager.MoveWithKeywordAsync(sourceFolder, uid, destFolder, ImapKeywords.SafeUnsubscribed);
@@ -140,8 +143,11 @@ public class FolderManagerTests
             Arg.Any<IStoreFlagsRequest>(),
             Arg.Any<CancellationToken>());
 
-        // Verify move called
-        await sourceFolder.Received(1).MoveToAsync(uid, destFolder, Arg.Any<CancellationToken>());
+        // Verify move called (via IMoveRequest under MailKit 5)
+        await sourceFolder.Received(1).MoveToAsync(
+            Arg.Is<IList<UniqueId>>(uids => uids.Count == 1 && uids[0] == uid),
+            Arg.Is<IMoveRequest>(r => r.Destination == destFolder),
+            Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -153,7 +159,7 @@ public class FolderManagerTests
         var expectedUid = new UniqueId(777);
 
         auditFolder.AppendAsync(Arg.Any<IAppendRequest>(), Arg.Any<CancellationToken>())
-            .Returns(expectedUid);
+            .Returns(Task.FromResult<UniqueId?>(expectedUid));
 
         var resultUid = await _manager.AppendAuditMessageAsync(auditFolder, auditMessage);
 
@@ -181,7 +187,7 @@ public class FolderManagerTests
         auditFolder.AppendAsync(
             Arg.Is<IAppendRequest>(r => r.Keywords == null || r.Keywords.Count == 0),
             Arg.Any<CancellationToken>())
-            .Returns(fallbackUid);
+            .Returns(Task.FromResult<UniqueId?>(fallbackUid));
 
         var resultUid = await _manager.AppendAuditMessageAsync(auditFolder, auditMessage);
 
